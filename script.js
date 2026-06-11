@@ -3,6 +3,7 @@ const IMG = 'https://image.tmdb.org/t/p';
 const VIDKING = 'https://www.vidking.net/embed';
 const VIDKING_ORIGIN = 'https://www.vidking.net';
 const VIDEASY = 'https://player.videasy.net';
+const VYLA = 'https://vyla.pages.dev';
 let playerSource = localStorage.getItem('vk_player') || 'videasy';
 const DEFAULT_AUDIO_SETTINGS = { enabled: false, spatial: false, volume: 0.45, width: 0.6, depth: 0.45 };
 let audioSettings = (() => {
@@ -283,8 +284,17 @@ function buildFilterMenu() {
 
 function genreNames(ids) { return (ids || []).map(i => GENRE_MAP[i]).filter(Boolean); }
 
+
+function getPlayerName(source) {
+    if (source === 'vidking') return 'VidKing';
+    if (source === 'vyla') return 'Vyla';
+    return 'VidEasy';
+}
+
 document.addEventListener('DOMContentLoaded', async () => {
     wireListeners();
+    const pt = document.getElementById('player-source-text');
+    if (pt) pt.textContent = `Trình phát: ${getPlayerName(playerSource)}`;
     installAdHooks();
     const hash = window.location.hash.slice(1);
     if (['movies', 'tv', 'mylist'].includes(hash)) {
@@ -748,17 +758,21 @@ function playContent(item, season, episode) {
     const e = episode || 1;
 
     let url;
-    const isVidking = playerSource === 'vidking';
+
 
     if (item.type === 'tv') {
-        if (isVidking) {
+        if (playerSource === 'vidking') {
             url = `${VIDKING}/tv/${item.id}/${s}/${e}?color=e50914&autoPlay=true&nextEpisode=true&episodeSelector=true`;
+        } else if (playerSource === 'vyla') {
+            url = `${VYLA}/tv/${item.id}/${s}/${e}`;
         } else {
             url = `${VIDEASY}/tv/${item.id}/${s}/${e}?color=e50914&autoplayNextEpisode=true&nextEpisode=true&episodeSelector=true&overlay=true`;
         }
     } else {
-        if (isVidking) {
+        if (playerSource === 'vidking') {
             url = `${VIDKING}/movie/${item.id}?color=e50914&autoPlay=true`;
+        } else if (playerSource === 'vyla') {
+            url = `${VYLA}/movie/${item.id}`;
         } else {
             url = `${VIDEASY}/movie/${item.id}?color=e50914&overlay=true`;
         }
@@ -1250,16 +1264,18 @@ function wireSettingsActions() {
     };
 
     const playerText = document.getElementById('player-source-text');
-    if (playerText) playerText.textContent = playerSource === 'vidking' ? 'Trình phát: VidKing' : 'Trình phát: VidEasy';
+    if (playerText) playerText.textContent = `Trình phát: ${getPlayerName(playerSource)}`;
 
     const playerToggleBtn = document.getElementById('settings-toggle-player');
     if (playerToggleBtn) {
         playerToggleBtn.onclick = e => {
             e.stopPropagation();
-            playerSource = playerSource === 'vidking' ? 'videasy' : 'vidking';
+            const players = ['videasy', 'vidking', 'vyla'];
+            const idx = players.indexOf(playerSource);
+            playerSource = players[(idx + 1) % players.length];
             localStorage.setItem('vk_player', playerSource);
-            playerText.textContent = playerSource === 'vidking' ? 'Trình phát: VidKing' : 'Trình phát: VidEasy';
-            showToast(`Đã chuyển trình phát sang ${playerSource === 'vidking' ? 'VidKing' : 'VidEasy'}`);
+            playerText.textContent = `Trình phát: ${getPlayerName(playerSource)}`;
+            showToast(`Đã chuyển trình phát sang ${getPlayerName(playerSource)}`);
         };
     }
 
