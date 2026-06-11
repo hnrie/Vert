@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport"
-        content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+        content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <meta name="theme-color" content="#141414">
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -57,9 +57,6 @@
                 <li class="nav-link active" data-page="home" tabindex="0" role="button">Trang chủ</li>
                 <li class="nav-link-dropdown" id="filter-wrapper">
                     <span class="nav-link" id="filter-btn" tabindex="0" role="button">Lọc <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><path d="M7 10l5 5 5-5z" /></svg></span>
-                    <div class="filter-dropdown" id="filter-dropdown">
-                        <!-- Genres will be injected here -->
-                    </div>
                 </li>
                 <li class="nav-link" data-page="mylist" tabindex="0" role="button">Danh sách của tôi</li>
             </ul>
@@ -182,6 +179,12 @@
         </div>
     </nav>
 
+    <div class="filter-dropdown" id="filter-dropdown" aria-label="Lọc theo thể loại">
+        <!-- Genres will be injected here -->
+    </div>
+
+    <div class="sheet-backdrop" id="sheet-backdrop" aria-hidden="true"></div>
+
     <div class="mobile-dropdown" id="mobile-dropdown">
         <div class="mobile-dropdown-item active" data-page="home" tabindex="0" role="button">Trang chủ</div>
         <div class="mobile-dropdown-item" data-page="filter" tabindex="0" role="button">Lọc</div>
@@ -195,7 +198,7 @@
             </svg>
             <span>Trang chủ</span>
         </div>
-        <div class="bottom-nav-item" data-page="filter-mobile" id="mobile-filter-trigger" tabindex="0" role="button">
+        <div class="bottom-nav-item" data-page="filter" id="mobile-filter-trigger" tabindex="0" role="button">
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
             </svg>
