@@ -292,6 +292,7 @@ function getPlayerName(source) {
 }
 
 document.addEventListener('DOMContentLoaded', async () => {
+    if (window.VERT_ANIM) VERT_ANIM.init();
     wireListeners();
     const pt = document.getElementById('player-source-text');
     if (pt) pt.textContent = `Trình phát: ${getPlayerName(playerSource)}`;
@@ -312,7 +313,14 @@ document.addEventListener('DOMContentLoaded', async () => {
         buildContinueRow();
         setupInfiniteScroll();
         if (currentPage !== 'home') navTo(currentPage, false);
-        hideLoader();
+        if (window.VERT_ANIM) {
+            VERT_ANIM.setLoaderProgress(100);
+            VERT_ANIM.setupRowScrollTriggers();
+            VERT_ANIM.setupCardHovers();
+            VERT_ANIM.hideLoader();
+        } else {
+            hideLoader();
+        }
     } catch (e) { console.error('Boot', e); }
 });
 
@@ -354,7 +362,8 @@ async function loadNextPage() {
         const items = results.filter(i => i && i.poster).sort((a,b) => (b.rating || 0) - (a.rating || 0));
         const grid = document.getElementById('search-grid');
         items.forEach(i => grid.appendChild(makeCard(i)));
-        
+        if (window.VERT_ANIM) VERT_ANIM.animateGridCards(grid);
+
         if (results.length === 0) {
             // No more results to fetch
             document.getElementById('infinite-scroll-sentinel').style.display = 'none';
@@ -419,6 +428,7 @@ async function buildAllRows() {
         });
         const results = await Promise.allSettled(tasks);
         allResults.push(...results);
+        if (window.VERT_ANIM) VERT_ANIM.setLoaderProgress(((i + BATCH_SIZE) / ROWS.length) * 90);
     }
     allResults.forEach(r => {
         if (r.status !== 'fulfilled') return;
@@ -458,8 +468,14 @@ function makeRow(cfg, items) {
         </div>`;
     const track = sec.querySelector('.slider-track');
     items.forEach((item, idx) => track.appendChild(makeCard(item, cfg.badge, idx)));
-    sec.querySelector('.slide-arrow.l').onclick = () => track.scrollBy({ left: -track.clientWidth * .82, behavior: 'smooth' });
-    sec.querySelector('.slide-arrow.r').onclick = () => track.scrollBy({ left: track.clientWidth * .82, behavior: 'smooth' });
+    sec.querySelector('.slide-arrow.l').onclick = () => {
+        if (window.VERT_ANIM) VERT_ANIM.scrollSlider(track, -1);
+        else track.scrollBy({ left: -track.clientWidth * .82, behavior: 'smooth' });
+    };
+    sec.querySelector('.slide-arrow.r').onclick = () => {
+        if (window.VERT_ANIM) VERT_ANIM.scrollSlider(track, 1);
+        else track.scrollBy({ left: track.clientWidth * .82, behavior: 'smooth' });
+    };
     return sec;
 }
 
@@ -467,7 +483,6 @@ function makeRow(cfg, items) {
 function makeCard(item, badgeType, idx) {
     const card = document.createElement('div');
     card.className = 'card';
-    card.style.animationDelay = `${(idx % 20) * 0.05}s`;
     card.tabIndex = 0;
     card.setAttribute('role', 'button');
     card.setAttribute('aria-label', `Xem chi tiết ${item.title}`);
@@ -540,6 +555,7 @@ function makeCard(item, badgeType, idx) {
             openDetail(item);
         }
     };
+    if (window.VERT_ANIM) VERT_ANIM.prepareCard(card);
     return card;
 }
 
@@ -577,6 +593,7 @@ function renderHero() {
 
     document.getElementById('hero-play-btn').onclick = () => playContent(heroItem);
     document.getElementById('hero-info-btn').onclick = () => openDetail(heroItem);
+    if (window.VERT_ANIM) VERT_ANIM.animateHero(true);
 }
 
 
@@ -621,9 +638,9 @@ async function openDetail(item, updateUrl = true) {
     document.getElementById('about-title').textContent = item.title;
     document.getElementById('about-details').innerHTML = '';
 
-    ov.classList.add('active');
-    document.body.style.overflow = 'hidden';
     ov.scrollTop = 0;
+    if (window.VERT_ANIM) VERT_ANIM.openDetail();
+    else { ov.classList.add('active'); document.body.style.overflow = 'hidden'; }
 
     try {
         const [det, cred, sim] = await Promise.all([
@@ -682,23 +699,38 @@ async function openDetail(item, updateUrl = true) {
                     <div class="sim-card-title">${escapeHtml(si.title)}</div>
                     <div class="sim-card-desc">${escapeHtml(si.desc)}</div>
                 </div>`;
-            sc.onclick = () => { closeDetail(); setTimeout(() => openDetail(si), 350); };
+            sc.onclick = () => {
+                if (window.VERT_ANIM) {
+                    VERT_ANIM.closeDetail(() => openDetail(si));
+                } else {
+                    closeDetail();
+                    setTimeout(() => openDetail(si), 350);
+                }
+            };
             sg.appendChild(sc);
         });
+        if (window.VERT_ANIM) VERT_ANIM.animateSimilarCards(sg);
     } catch (e) { console.warn('Detail', e); }
 }
 
 function closeDetail(updateUrl = true) {
-    document.getElementById('detail-overlay').classList.remove('active');
-    document.body.style.overflow = '';
-    detailCurrent = null;
-
-    if (updateUrl) {
-        if (currentPage === 'home') {
-            history.pushState(null, '', window.location.pathname + window.location.search);
-        } else {
-            history.pushState(null, '', '#' + currentPage);
+    const finish = () => {
+        detailCurrent = null;
+        if (updateUrl) {
+            if (currentPage === 'home') {
+                history.pushState(null, '', window.location.pathname + window.location.search);
+            } else {
+                history.pushState(null, '', '#' + currentPage);
+            }
         }
+    };
+
+    if (window.VERT_ANIM) {
+        VERT_ANIM.closeDetail(finish);
+    } else {
+        document.getElementById('detail-overlay').classList.remove('active');
+        document.body.style.overflow = '';
+        finish();
     }
 }
 
@@ -736,6 +768,7 @@ async function fetchEps(tvId, sNum) {
                     </div>
                 </div>`;
         }).join('');
+        if (window.VERT_ANIM) VERT_ANIM.animateEpisodes(list);
     } catch (e) { list.innerHTML = '<div class="empty-state"><svg width="60" height="60" viewBox="0 0 24 24" fill="none" stroke="#ff4444" stroke-width="1"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg><h3 style="color:#ff4444">Tải thất bại</h3><p>Vui lòng thử lại sau.</p><button class="btn-hero btn-gray" style="margin-top: 20px;" onclick="closeDetail()">Quay lại</button></div>'; }
 }
 
@@ -789,8 +822,8 @@ function playContent(item, season, episode) {
 
     const playerOverlay = document.getElementById('player-overlay');
     playerOverlay.classList.remove('show-audio-panel');
-    playerOverlay.classList.add('active');
-    document.body.style.overflow = 'hidden';
+    if (window.VERT_ANIM) VERT_ANIM.openPlayer();
+    else { playerOverlay.classList.add('active'); document.body.style.overflow = 'hidden'; }
     playUiSound('open', 0.35);
     applyAudioScene();
 }
@@ -809,11 +842,17 @@ function destroyPlayerFrame() {
 function closePlayer() {
     ignoreProgress = true;
     destroyPlayerFrame();
-    const playerOverlay = document.getElementById('player-overlay');
-    playerOverlay.classList.remove('active', 'show-audio-panel');
-    document.body.style.overflow = '';
-    applyAudioScene();
-    buildContinueRow();
+    const finish = () => {
+        applyAudioScene();
+        buildContinueRow();
+    };
+    if (window.VERT_ANIM) VERT_ANIM.closePlayer(finish);
+    else {
+        const playerOverlay = document.getElementById('player-overlay');
+        playerOverlay.classList.remove('active', 'show-audio-panel');
+        document.body.style.overflow = '';
+        finish();
+    }
 }
 
 
@@ -855,6 +894,7 @@ async function applyFilter(genreId, genreName) {
         }
         grid.innerHTML = '';
         items.forEach(i => grid.appendChild(makeCard(i)));
+        if (window.VERT_ANIM) VERT_ANIM.animateGridCards(grid);
     } catch (e) {
         grid.innerHTML = '<div class="empty-state" style="grid-column: 1 / -1;"><svg width="60" height="60" viewBox="0 0 24 24" fill="none" stroke="#ff4444" stroke-width="1"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg><h3 style="color:#ff4444">Đã xảy ra lỗi</h3><p>Vui lòng thử lại sau.</p><button class="btn-hero btn-white" style="margin-top: 20px;" onclick="navTo(\'home\')">Về Trang chủ</button></div>';
     }
@@ -892,6 +932,7 @@ async function doSearch(q) {
         }
         grid.innerHTML = '';
         items.forEach(i => grid.appendChild(makeCard(i)));
+        if (window.VERT_ANIM) VERT_ANIM.animateGridCards(grid);
     } catch (e) {
         grid.innerHTML = '<div class="empty-state" style="grid-column: 1 / -1;"><svg width="60" height="60" viewBox="0 0 24 24" fill="none" stroke="#ff4444" stroke-width="1"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg><h3 style="color:#ff4444">Đã xảy ra lỗi</h3><p>Vui lòng thử lại sau.</p><button class="btn-hero btn-white" style="margin-top: 20px;" onclick="document.getElementById(\'search-clear\').click()">Xóa tìm kiếm</button></div>';
     }
@@ -923,6 +964,7 @@ async function fetchSuggestions(q) {
         });
         document.getElementById('suggest-see-all').onclick = () => { box.classList.remove('active'); box.innerHTML = ''; doSearch(q); };
         box.classList.add('active');
+        if (window.VERT_ANIM) VERT_ANIM.animateSuggestions(box);
     } catch (_) { box.classList.remove('active'); }
 }
 
@@ -952,6 +994,7 @@ function showMyList() {
     if (!ls.length) { em.classList.remove('hidden'); return; }
     em.classList.add('hidden');
     ls.forEach(i => g.appendChild(makeCard(i)));
+    if (window.VERT_ANIM) VERT_ANIM.animateGridCards(g);
 }
 
 
@@ -969,6 +1012,10 @@ function buildContinueRow() {
     if (!h.length) return;
     const main = document.getElementById('main-rows');
     main.insertBefore(makeRow({ id: 'continue', title: 'Tiếp tục xem dành cho bạn', mediaType: 'all' }, h), main.firstChild);
+    if (window.VERT_ANIM) {
+        VERT_ANIM.setupCardHovers();
+        VERT_ANIM.refreshScrollTriggers();
+    }
 }
 
 
@@ -1019,10 +1066,18 @@ function navTo(page, updateUrl = true) {
     sp.classList.remove('active');
 
     if (page === 'mylist') {
-        he.style.display = 'none'; mr.style.display = 'none';
-        ml.classList.add('active'); showMyList(); return;
+        if (window.VERT_ANIM) {
+            VERT_ANIM.pageTransition(ml, [he, mr], () => showMyList());
+        } else {
+            he.style.display = 'none'; mr.style.display = 'none';
+            ml.classList.add('active'); showMyList();
+        }
+        return;
     }
-    ml.classList.remove('active'); he.style.display = ''; mr.style.display = '';
+    const wasMylist = ml.classList.contains('active');
+    ml.classList.remove('active');
+    he.style.display = ''; mr.style.display = '';
+    if (window.VERT_ANIM && wasMylist) VERT_ANIM.animateHomeReturn();
     document.querySelectorAll('.content-row').forEach(r => {
         const t = r.dataset.type;
         r.classList.toggle('hidden', page !== 'home' && t !== 'all' && t !== (page === 'movies' ? 'movie' : 'tv'));
@@ -1100,25 +1155,46 @@ function wireListeners() {
 
     const mobileMenuBtn = document.getElementById('mobile-menu-btn');
     if (mobileMenuBtn) {
-        mobileMenuBtn.onclick = () => document.getElementById('mobile-dropdown').classList.toggle('open');
+        const mobileDd = document.getElementById('mobile-dropdown');
+        mobileMenuBtn.onclick = () => {
+            const open = !mobileDd.classList.contains('open');
+            if (window.VERT_ANIM) VERT_ANIM.toggleMobileMenu(mobileDd, open);
+            else mobileDd.classList.toggle('open');
+        };
         makeInteractive(mobileMenuBtn);
     }
 
     const filterBtn = document.getElementById('filter-btn');
     const filterDrop = document.getElementById('filter-dropdown');
     if (filterBtn) {
-        filterBtn.onclick = (e) => { e.stopPropagation(); filterDrop.classList.toggle('open'); };
+        filterBtn.onclick = (e) => {
+            e.stopPropagation();
+            const open = !filterDrop.classList.contains('open');
+            if (window.VERT_ANIM) VERT_ANIM.animateDropdown(filterDrop, open);
+            else filterDrop.classList.toggle('open');
+        };
         // makeInteractive(filterBtn); // Already handled in .nav-link loop
     }
     
     const mobileFilterTrigger = document.getElementById('mobile-filter-trigger');
     if (mobileFilterTrigger) {
-        mobileFilterTrigger.onclick = (e) => { e.stopPropagation(); filterDrop.classList.toggle('open'); };
+        mobileFilterTrigger.onclick = (e) => {
+            e.stopPropagation();
+            const open = !filterDrop.classList.contains('open');
+            if (window.VERT_ANIM) VERT_ANIM.animateDropdown(filterDrop, open);
+            else filterDrop.classList.toggle('open');
+        };
         // makeInteractive(mobileFilterTrigger); // Already handled in .bottom-nav-item loop
     }
 
     const sw = document.getElementById('search-wrapper'), si = document.getElementById('search-input');
-    document.getElementById('search-btn').onclick = () => { sw.classList.toggle('open'); if (sw.classList.contains('open')) si.focus(); else { si.value = ''; doSearch(''); hideSuggestions(); } };
+    document.getElementById('search-btn').onclick = () => {
+        const open = !sw.classList.contains('open');
+        sw.classList.toggle('open');
+        if (window.VERT_ANIM) VERT_ANIM.toggleSearch(sw, open);
+        if (open) si.focus();
+        else { si.value = ''; doSearch(''); hideSuggestions(); }
+    };
     document.getElementById('search-clear').onclick = () => { si.value = ''; doSearch(''); hideSuggestions(); si.focus(); };
     si.oninput = () => {
         clearTimeout(searchDebounce);
@@ -1182,6 +1258,7 @@ function wireListeners() {
 }
 
 function showToast(msg) {
+    if (window.VERT_ANIM) { VERT_ANIM.showToast(msg); return; }
     const t = document.getElementById('account-toast');
     t.textContent = msg;
     t.classList.add('show');
@@ -1344,13 +1421,16 @@ function openSyncModal() {
     document.getElementById('sync-generate').textContent = 'Tạo mã PIN';
     if (syncTimerInterval) { clearInterval(syncTimerInterval); syncTimerInterval = null; }
     switchSyncTab('export');
-    ov.classList.add('active');
-    document.body.style.overflow = 'hidden';
+    if (window.VERT_ANIM) VERT_ANIM.openSync();
+    else { ov.classList.add('active'); document.body.style.overflow = 'hidden'; }
 }
 
 function closeSyncModal() {
-    document.getElementById('sync-overlay').classList.remove('active');
-    document.body.style.overflow = '';
+    if (window.VERT_ANIM) VERT_ANIM.closeSync();
+    else {
+        document.getElementById('sync-overlay').classList.remove('active');
+        document.body.style.overflow = '';
+    }
     if (syncTimerInterval) { clearInterval(syncTimerInterval); syncTimerInterval = null; }
 }
 
@@ -1358,6 +1438,8 @@ function switchSyncTab(tab) {
     document.querySelectorAll('.sync-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === tab));
     document.getElementById('sync-export-panel').classList.toggle('hidden', tab !== 'export');
     document.getElementById('sync-import-panel').classList.toggle('hidden', tab !== 'import');
+    const panel = document.getElementById(tab === 'export' ? 'sync-export-panel' : 'sync-import-panel');
+    if (window.VERT_ANIM) VERT_ANIM.animateSyncTab(panel);
 }
 
 function getSyncData() {

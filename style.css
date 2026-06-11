@@ -2852,13 +2852,52 @@ footer {
     opacity: 1;
 }
 
-/* Hero Zoom animation on load */
+/* Hero Zoom animation on load (fallback when GSAP unavailable) */
 @keyframes heroZoomIn {
     0% { transform: scale(1.1); }
     100% { transform: scale(1); }
 }
 #hero {
     animation: heroZoomIn 2s ease-out forwards;
+}
+
+/* GSAP takes over animations when available */
+body.gsap-enabled #hero {
+    animation: none;
+}
+body.gsap-enabled .card {
+    animation: none;
+}
+body.gsap-enabled .card:hover,
+body.gsap-enabled .card:focus-visible {
+    transform: none;
+    box-shadow: none;
+    z-index: auto;
+    transition: none;
+}
+body.gsap-enabled .card:hover .card-panel,
+body.gsap-enabled .card:focus-visible .card-panel,
+body.gsap-enabled .card:focus-within .card-panel {
+    transform: translateY(100%);
+    opacity: 0;
+    transition: none;
+}
+body.gsap-enabled .detail-overlay,
+body.gsap-enabled .detail-modal,
+body.gsap-enabled .player-overlay,
+body.gsap-enabled .sync-overlay,
+body.gsap-enabled .sync-modal,
+body.gsap-enabled .account-toast,
+body.gsap-enabled .filter-dropdown,
+body.gsap-enabled .search-suggestions,
+body.gsap-enabled .page-section.active {
+    transition: none;
+}
+body.gsap-enabled .loader-bar-fill {
+    animation: none;
+}
+body.gsap-enabled .loader-logo span {
+    animation: none;
 }
 
 /* Navbar smooth scroll effect */
