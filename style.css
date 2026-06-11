@@ -2395,6 +2395,7 @@ footer {
         border-radius: 16px 16px 0 0;
         padding-bottom: var(--safe-bottom);
         transform: translateY(100%);
+        z-index: 1250;
     }
 
     .account-dropdown::before {
