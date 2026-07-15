@@ -188,18 +188,16 @@ function switchSource(url, label) {
         return;
     }
 
+    // Route HLS through our own proxy to avoid api.vyla.cc QUIC/HTTP3 errors
+    const proxiedUrl = url.includes('api.vyla.cc')
+        ? '/api/vyla-proxy?url=' + encodeURIComponent(url)
+        : url;
+
     if (Hls.isSupported()) {
         hls = new Hls({
-            startLevel: -1,
-            // Send session token with every request to api.vyla.cc
-            xhrSetup: (xhr, reqUrl) => {
-                if (reqUrl && reqUrl.includes('api.vyla.cc') && token) {
-                    xhr.withCredentials = false;
-                    try { xhr.setRequestHeader('X-Session-Token', token); } catch (_) {}
-                }
-            }
+            startLevel: -1
         });
-        hls.loadSource(url);
+        hls.loadSource(proxiedUrl);
         hls.attachMedia(video);
 
         hls.on(Hls.Events.MANIFEST_PARSED, (_, data) => {
@@ -231,9 +229,9 @@ function switchSource(url, label) {
         return;
     }
 
-    // Safari native HLS
+    // Safari native HLS - also route through proxy
     if (video.canPlayType('application/vnd.apple.mpegurl')) {
-        video.src = url;
+        video.src = proxiedUrl;
         video.addEventListener('loadedmetadata', () => {
             if (manifestTimer) { clearTimeout(manifestTimer); manifestTimer = null; }
             playbackStarted = true;
@@ -262,6 +260,7 @@ function addSourceButton(src) {
 }
 
 // Subtitles: proxy through our serverless function to avoid CORS
+// data: URIs are used directly (no CORS needed)
 function addSubtitleTracks(subtitles) {
     Array.from(video.querySelectorAll('track')).forEach(t => t.remove());
     subList.innerHTML = '';
@@ -273,8 +272,14 @@ function addSubtitleTracks(subtitles) {
         track.kind = 'subtitles';
         track.label = sub.label;
         track.srclang = sub.label.slice(0, 2).toLowerCase();
-        // Proxy subtitle URL through our own domain to avoid cross-origin <track> CORS block
-        track.src = '/api/vyla-sub?url=' + encodeURIComponent(sub.file);
+
+        // data: URIs work directly in <track> - no CORS issue
+        // http(s) URLs need proxying to avoid cross-origin block
+        if (sub.file.startsWith('data:')) {
+            track.src = sub.file;
+        } else {
+            track.src = '/api/vyla-sub?url=' + encodeURIComponent(sub.file);
+        }
         if (i === 0) track.default = true;
         video.appendChild(track);
 

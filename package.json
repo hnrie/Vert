@@ -12,6 +12,8 @@
   },
   "devDependencies": {
     "@capacitor/cli": "^5.0.0",
-    "@tauri-apps/cli": "^1.5.0"
+    "@playwright/test": "^1.61.1",
+    "@tauri-apps/cli": "^1.5.0",
+    "playwright": "^1.61.1"
   }
 }
