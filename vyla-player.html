@@ -188,10 +188,9 @@ function switchSource(url, label) {
         return;
     }
 
-    // Route ALL HLS traffic through our proxy to avoid QUIC + auth issues.
-    // Pass the session token so the proxy can authenticate api.vyla.cc requests.
+    // Route ALL HLS traffic through our proxy (Edge Function gets its own token)
     const proxiedUrl = url.includes('api.vyla.cc')
-        ? `/api/vyla-proxy?url=${encodeURIComponent(url)}&token=${encodeURIComponent(token || '')}`
+        ? `/api/vyla-proxy?url=${encodeURIComponent(url)}`
         : url;
 
     if (Hls.isSupported()) {
