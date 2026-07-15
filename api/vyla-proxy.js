@@ -33,33 +33,46 @@ export default async function handler(req) {
         return new Response(JSON.stringify({ error: 'Invalid url' }), { status: 400, headers: { 'Content-Type': 'application/json' } });
     }
 
-    if (parsed.hostname !== 'api.vyla.cc') {
-        return new Response(JSON.stringify({ error: 'Host not allowed' }), { status: 403, headers: { 'Content-Type': 'application/json' } });
+    // Allow api.vyla.cc and upstream CDN hosts that appear in manifests
+    const isVylaApi = parsed.hostname === 'api.vyla.cc';
+    const allowedHostSuffixes = [
+        'ironbubble.site', 'fsharetv.co', 'vidrock.baby', 
+        'mbx.notorrent2.workers.dev', 'source.heistotron.uk'
+    ];
+    const isAllowedCdn = allowedHostSuffixes.some(h => 
+        parsed.hostname === h || parsed.hostname.endsWith('.' + h)
+    );
+
+    if (!isVylaApi && !isAllowedCdn) {
+        return new Response(JSON.stringify({ error: 'Host not allowed: ' + parsed.hostname }), { status: 403, headers: { 'Content-Type': 'application/json' } });
     }
 
     try {
-        const token = await getToken();
+        // Build headers - only send token for api.vyla.cc
+        const headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+            'Accept': '*/*'
+        };
 
-        const r = await fetch(parsed.toString(), {
-            headers: {
-                'X-Session-Token': token,
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-                'Accept': '*/*'
+        if (isVylaApi) {
+            try {
+                const token = await getToken();
+                headers['X-Session-Token'] = token;
+            } catch (_) {
+                // internal_token in URL may be sufficient
             }
-        });
+        }
 
-        if (r.status === 401) {
-            // Token expired, refresh and retry
+        let r = await fetch(parsed.toString(), { headers, redirect: 'follow' });
+
+        // Retry with fresh token if 401 on api.vyla.cc
+        if (r.status === 401 && isVylaApi) {
             cachedToken = null;
-            const newToken = await getToken();
-            const retry = await fetch(parsed.toString(), {
-                headers: {
-                    'X-Session-Token': newToken,
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-                    'Accept': '*/*'
-                }
-            });
-            return handleResponse(retry, parsed);
+            try {
+                const newToken = await getToken();
+                headers['X-Session-Token'] = newToken;
+                r = await fetch(parsed.toString(), { headers, redirect: 'follow' });
+            } catch (_) {}
         }
 
         if (!r.ok) {
@@ -69,7 +82,7 @@ export default async function handler(req) {
         return handleResponse(r, parsed);
 
     } catch (err) {
-        return new Response(JSON.stringify({ error: 'Failed to fetch from Vyla: ' + (err.message || 'unknown') }), { status: 502, headers: { 'Content-Type': 'application/json' } });
+        return new Response(JSON.stringify({ error: 'Failed to fetch: ' + (err.message || 'unknown') }), { status: 502, headers: { 'Content-Type': 'application/json' } });
     }
 }
 
@@ -105,10 +118,7 @@ async function handleResponse(r, fetchUrl) {
     }
 
     const proxyBase = '/api/vyla-proxy?url=';
-    // Base URL for resolving relative paths (the URL we fetched from api.vyla.cc)
     const baseUrlStr = fetchUrl ? fetchUrl.toString() : '';
-    const baseUrl = baseUrlStr ? new URL(baseUrlStr) : null;
-    // The origin to use for absolute-path resolution
     const apiOrigin = 'https://api.vyla.cc';
 
     text = text.split('\n').map(line => {
@@ -122,10 +132,12 @@ async function handleResponse(r, fetchUrl) {
                     return `URI="${proxyBase}${encodeURIComponent(uri)}"`;
                 }
                 if (uri.startsWith('/')) {
-                    return `URI="${proxyBase}${encodeURIComponent(apiOrigin + uri)}"`;
+                    // Resolve against api.vyla.cc if the manifest came from there
+                    const origin = fetchUrl && fetchUrl.hostname === 'api.vyla.cc' ? apiOrigin : baseUrlStr.replace(/\/[^/]*$/, '');
+                    return `URI="${proxyBase}${encodeURIComponent(origin + uri)}"`;
                 }
                 // Relative URI - resolve against base URL
-                if (baseUrl) {
+                if (baseUrlStr) {
                     try {
                         const resolved = new URL(uri, baseUrlStr).toString();
                         return `URI="${proxyBase}${encodeURIComponent(resolved)}"`;
@@ -135,7 +147,7 @@ async function handleResponse(r, fetchUrl) {
             });
         }
 
-        // Skip comments and directives
+        // Skip comments and directives (but not URI lines which are handled above)
         if (trimmed.startsWith('#')) return line;
 
         // Plain absolute URL lines (segment URLs)
@@ -145,12 +157,12 @@ async function handleResponse(r, fetchUrl) {
 
         // Absolute-path segment URLs
         if (trimmed.startsWith('/')) {
-            return `${proxyBase}${encodeURIComponent(apiOrigin + trimmed)}`;
+            const origin = fetchUrl && fetchUrl.hostname === 'api.vyla.cc' ? apiOrigin : baseUrlStr.replace(/\/[^/]*$/, '');
+            return `${proxyBase}${encodeURIComponent(origin + trimmed)}`;
         }
 
         // Relative segment URLs (e.g. "seg-1.ts", "quality/1080p.m3u8")
-        // Resolve against the original fetch URL
-        if (baseUrl) {
+        if (baseUrlStr) {
             try {
                 const resolved = new URL(trimmed, baseUrlStr).toString();
                 return `${proxyBase}${encodeURIComponent(resolved)}`;
