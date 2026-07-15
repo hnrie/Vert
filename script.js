@@ -3,7 +3,7 @@ const IMG = 'https://image.tmdb.org/t/p';
 const VIDKING = 'https://www.vidking.net/embed';
 const VIDKING_ORIGIN = 'https://www.vidking.net';
 const VIDEASY = 'https://player.videasy.net';
-const VYLA = 'vyla-player.html';
+const VYLA = 'https://player.vyla.cc';
 let playerSource = localStorage.getItem('vk_player') || 'videasy';
 const DEFAULT_AUDIO_SETTINGS = { enabled: false, spatial: false, volume: 0.45, width: 0.6, depth: 0.45 };
 let audioSettings = (() => {
@@ -764,7 +764,7 @@ function playContent(item, season, episode) {
         if (playerSource === 'vidking') {
             url = `${VIDKING}/tv/${item.id}/${s}/${e}?color=e50914&autoPlay=true&nextEpisode=true&episodeSelector=true`;
         } else if (playerSource === 'vyla') {
-            url = `${VYLA}?id=${item.id}&season=${s}&episode=${e}`;
+            url = `${VYLA}/?id=${item.id}&season=${s}&episode=${e}`;
         } else {
             url = `${VIDEASY}/tv/${item.id}/${s}/${e}?color=e50914&autoplayNextEpisode=true&nextEpisode=true&episodeSelector=true&overlay=true`;
         }
@@ -772,7 +772,7 @@ function playContent(item, season, episode) {
         if (playerSource === 'vidking') {
             url = `${VIDKING}/movie/${item.id}?color=e50914&autoPlay=true`;
         } else if (playerSource === 'vyla') {
-            url = `${VYLA}?id=${item.id}`;
+            url = `${VYLA}/?id=${item.id}`;
         } else {
             url = `${VIDEASY}/movie/${item.id}?color=e50914&overlay=true`;
         }
@@ -782,9 +782,36 @@ function playContent(item, season, episode) {
 
     ignoreProgress = false;
 
+    // Vyla player.vyla.cc has intermittent QUIC/HTTP3 errors.
+    // Reload the iframe up to 3 times if it fails to load.
+    let vylaRetries = 0;
+    const maxVylaRetries = 3;
+
     setTimeout(() => {
         const frame = document.getElementById('player-frame');
         frame.innerHTML = `<iframe src="${url}" allow="autoplay *; fullscreen *; encrypted-media *; picture-in-picture *"></iframe>`;
+
+        if (playerSource === 'vyla') {
+            const iframe = frame.querySelector('iframe');
+            let loaded = false;
+            iframe.addEventListener('load', () => { loaded = true; });
+
+            // If iframe doesn't fire load within 8s, reload (QUIC error)
+            const checkLoaded = setInterval(() => {
+                if (loaded) {
+                    clearInterval(checkLoaded);
+                    return;
+                }
+                vylaRetries++;
+                if (vylaRetries > maxVylaRetries) {
+                    clearInterval(checkLoaded);
+                    return;
+                }
+                // Reload iframe to retry (QUIC errors are intermittent)
+                loaded = false;
+                iframe.src = url;
+            }, 8000);
+        }
     }, 150);
 
     const playerOverlay = document.getElementById('player-overlay');
