@@ -196,10 +196,17 @@ function switchSource(url, label) {
     if (Hls.isSupported()) {
         hls = new Hls({
             startLevel: -1,
-            fragLoadingMaxRetry: 6,
+            fragLoadingMaxRetry: 8,
             fragLoadingRetryDelay: 500,
             manifestLoadingMaxRetry: 4,
-            levelLoadingMaxRetry: 4
+            levelLoadingMaxRetry: 4,
+            // Send session token for direct api.vyla.cc segment fetches
+            // (manifests go through proxy, but segments are fetched directly)
+            xhrSetup: (xhr, reqUrl) => {
+                if (reqUrl && reqUrl.includes('api.vyla.cc') && token) {
+                    try { xhr.setRequestHeader('X-Session-Token', token); } catch (_) {}
+                }
+            }
         });
         hls.loadSource(proxiedUrl);
         hls.attachMedia(video);

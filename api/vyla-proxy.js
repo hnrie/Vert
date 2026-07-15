@@ -115,7 +115,16 @@ async function handleResponse(r, fetchUrl) {
             return line.replace(/URI="([^"]+)"/g, (_, uri) => 'URI="' + rewriteUrl(uri) + '"');
         }
         if (trimmed.startsWith('#')) return line;
-        return rewriteUrl(trimmed);
+
+        // Only rewrite variant playlist URLs (in master manifests with #EXT-X-STREAM-INF).
+        // Segment URLs in media playlists (with #EXTINF) are left as-is so HLS.js
+        // fetches them directly — proxying every segment is too slow (504 timeouts).
+        const isMasterPlaylist = text.includes('#EXT-X-STREAM-INF');
+        if (isMasterPlaylist) {
+            return rewriteUrl(trimmed);
+        }
+        // Media playlist: leave segment URLs direct (HLS.js + xhrSetup handles auth)
+        return line;
     }).join('\n');
 
     return new Response(rewritten, {
