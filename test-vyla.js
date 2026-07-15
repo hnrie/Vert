@@ -23,6 +23,8 @@ async function runTests() {
     // ====== TEST 1: Auth endpoint ======
     console.log('\n=== TEST 1: Auth endpoint ===');
     try {
+        // Navigate to the site first so relative URLs work
+        await page.goto(`${BASE}/vyla-player.html?id=550`, { waitUntil: 'domcontentloaded', timeout: 15000 });
         const response = await page.evaluate(async () => {
             const r = await fetch('/api/vyla-auth', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
             return { status: r.status, body: await r.text() };

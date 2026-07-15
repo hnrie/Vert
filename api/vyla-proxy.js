@@ -1,5 +1,7 @@
 
-// Cache token at module level (shared across invocations on same instance)
+export const config = { runtime: 'edge' };
+
+// Cache token at module level (shared across edge invocations)
 let cachedToken = null;
 let tokenExpiresAt = 0;
 
@@ -17,79 +19,78 @@ async function getToken() {
     return cachedToken;
 }
 
-export default async function handler(req, res) {
-    const { url } = req.query;
-    if (!url) {
-        return res.status(400).json({ error: 'Missing url parameter' });
+export default async function handler(req) {
+    const url = new URL(req.url);
+    const targetUrl = url.searchParams.get('url');
+    if (!targetUrl) {
+        return new Response(JSON.stringify({ error: 'Missing url parameter' }), { status: 400, headers: { 'Content-Type': 'application/json' } });
     }
 
     let parsed;
     try {
-        parsed = new URL(url);
+        parsed = new URL(targetUrl);
     } catch {
-        return res.status(400).json({ error: 'Invalid url' });
+        return new Response(JSON.stringify({ error: 'Invalid url' }), { status: 400, headers: { 'Content-Type': 'application/json' } });
     }
 
-    // Only allow api.vyla.cc proxy URLs
     if (parsed.hostname !== 'api.vyla.cc') {
-        return res.status(403).json({ error: 'Host not allowed' });
+        return new Response(JSON.stringify({ error: 'Host not allowed' }), { status: 403, headers: { 'Content-Type': 'application/json' } });
     }
 
     try {
-        // Get a session token for api.vyla.cc
         const token = await getToken();
 
-        const fetchUrl = parsed.toString();
-
-        const r = await fetch(fetchUrl, {
+        const r = await fetch(parsed.toString(), {
             headers: {
                 'X-Session-Token': token,
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
                 'Accept': '*/*'
-            },
-            redirect: 'follow'
+            }
         });
 
-        if (!r.ok) {
-            // If 401, clear cached token and retry once
-            if (r.status === 401) {
-                cachedToken = null;
-                const newToken = await getToken();
-                const retry = await fetch(fetchUrl, {
-                    headers: {
-                        'X-Session-Token': newToken,
-                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-                        'Accept': '*/*'
-                    },
-                    redirect: 'follow'
-                });
-                if (!retry.ok) {
-                    return res.status(retry.status).json({ error: `Upstream ${retry.status}` });
+        if (r.status === 401) {
+            // Token expired, refresh and retry
+            cachedToken = null;
+            const newToken = await getToken();
+            const retry = await fetch(parsed.toString(), {
+                headers: {
+                    'X-Session-Token': newToken,
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+                    'Accept': '*/*'
                 }
-                return handleResponse(retry, res);
-            }
-            return res.status(r.status).json({ error: `Upstream ${r.status}` });
+            });
+            return handleResponse(retry);
         }
 
-        return handleResponse(r, res);
+        if (!r.ok) {
+            return new Response(JSON.stringify({ error: `Upstream ${r.status}` }), { status: r.status, headers: { 'Content-Type': 'application/json' } });
+        }
+
+        return handleResponse(r);
 
     } catch (err) {
-        console.error('Vyla proxy error:', err);
-        return res.status(502).json({ error: 'Failed to fetch from Vyla' });
+        return new Response(JSON.stringify({ error: 'Failed to fetch from Vyla: ' + (err.message || 'unknown') }), { status: 502, headers: { 'Content-Type': 'application/json' } });
     }
 }
 
-async function handleResponse(r, res) {
+async function handleResponse(r) {
     const contentType = (r.headers.get('content-type') || '').toLowerCase();
     const isManifest = contentType.includes('mpegurl') || contentType.includes('m3u8') || contentType.includes('text/plain');
 
+    const corsHeaders = {
+        'Access-Control-Allow-Origin': '*',
+        'Cache-Control': 's-maxage=300, stale-while-revalidate=600'
+    };
+
     // For binary segments (TS, key files), stream directly
     if (!isManifest) {
-        const buf = Buffer.from(await r.arrayBuffer());
-        res.setHeader('Content-Type', contentType || 'video/mp2t');
-        res.setHeader('Cache-Control', 's-maxage=300, stale-while-revalidate=600');
-        res.setHeader('Access-Control-Allow-Origin', '*');
-        return res.status(200).send(buf);
+        return new Response(r.body, {
+            status: 200,
+            headers: {
+                'Content-Type': contentType || 'video/mp2t',
+                ...corsHeaders
+            }
+        });
     }
 
     // For m3u8 manifests, rewrite all URLs to go through this proxy
@@ -97,14 +98,14 @@ async function handleResponse(r, res) {
 
     // Check if it's actually a manifest
     if (!text.includes('#EXTM3U') && !text.includes('#EXT-X')) {
-        res.setHeader('Content-Type', contentType || 'text/plain');
-        res.setHeader('Access-Control-Allow-Origin', '*');
-        return res.status(200).send(text);
+        return new Response(text, {
+            status: 200,
+            headers: { 'Content-Type': contentType || 'text/plain', ...corsHeaders }
+        });
     }
 
     const proxyBase = '/api/vyla-proxy?url=';
 
-    // Rewrite all lines that contain URLs
     text = text.split('\n').map(line => {
         const trimmed = line.trim();
         if (!trimmed) return line;
@@ -116,8 +117,7 @@ async function handleResponse(r, res) {
                     return `URI="${proxyBase}${encodeURIComponent(uri)}"`;
                 }
                 if (uri.startsWith('/')) {
-                    const resolved = `https://api.vyla.cc${uri}`;
-                    return `URI="${proxyBase}${encodeURIComponent(resolved)}"`;
+                    return `URI="${proxyBase}${encodeURIComponent('https://api.vyla.cc' + uri)}"`;
                 }
                 return match;
             });
@@ -130,15 +130,18 @@ async function handleResponse(r, res) {
 
         // Relative segment URLs
         if (trimmed.startsWith('/')) {
-            const resolved = `https://api.vyla.cc${trimmed}`;
-            return `${proxyBase}${encodeURIComponent(resolved)}`;
+            return `${proxyBase}${encodeURIComponent('https://api.vyla.cc' + trimmed)}`;
         }
 
         return line;
     }).join('\n');
 
-    res.setHeader('Content-Type', 'application/vnd.apple.mpegurl; charset=utf-8');
-    res.setHeader('Cache-Control', 's-maxage=60, stale-while-revalidate=300');
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    return res.status(200).send(text);
+    return new Response(text, {
+        status: 200,
+        headers: {
+            'Content-Type': 'application/vnd.apple.mpegurl; charset=utf-8',
+            'Cache-Control': 's-maxage=60, stale-while-revalidate=300',
+            'Access-Control-Allow-Origin': '*'
+        }
+    });
 }
