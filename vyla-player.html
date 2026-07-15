@@ -23,7 +23,7 @@ video{width:100%;height:100%;background:#000;object-fit:contain}
 #progress-filled{height:100%;background:#e50914;border-radius:2px;width:0;position:relative}
 #progress-filled::after{content:'';position:absolute;right:-6px;top:50%;transform:translateY(-50%);width:12px;height:12px;background:#e50914;border-radius:50%;opacity:0;transition:opacity .2s}
 #progress-bar:hover #progress-filled::after{opacity:1}
-#control-row{display:flex;align-items:center;gap:12px}
+#control-row{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
 .ctrl-btn{background:none;border:none;color:#fff;cursor:pointer;padding:4px;display:flex;align-items:center;justify-content:center;opacity:.85;transition:opacity .2s}
 .ctrl-btn:hover{opacity:1}
 .ctrl-btn svg{width:20px;height:20px}
@@ -110,6 +110,9 @@ let allSources = [];
 let activeUrl = null;
 let token = null;
 let tokenExpiresAt = 0;
+let triedSources = new Set();
+let manifestTimer = null;
+let playbackStarted = false;
 
 function isMp4(url) {
     try {
@@ -128,8 +131,20 @@ function fmtTime(s) {
 
 function showError(msg) {
     loader.style.display = 'none';
+    if (manifestTimer) { clearTimeout(manifestTimer); manifestTimer = null; }
     errorMsg.textContent = msg || 'Khong the tai nguon video.';
     errorScreen.classList.add('show');
+}
+
+function tryNextSource(failedUrl) {
+    if (manifestTimer) { clearTimeout(manifestTimer); manifestTimer = null; }
+    if (failedUrl) triedSources.add(failedUrl);
+    const next = allSources.find(s => !triedSources.has(s.url));
+    if (next) {
+        switchSource(next.url, next.label || next.source);
+    } else {
+        showError('Tat ca nguon deu that bai.');
+    }
 }
 
 async function getToken() {
@@ -145,27 +160,51 @@ async function getToken() {
 
 function switchSource(url, label) {
     activeUrl = url;
+    playbackStarted = false;
     loaderLabel.textContent = `Dang tai ${label}...`;
     loader.style.display = 'flex';
     qualitySelect.style.display = 'none';
     qualitySelect.innerHTML = '<option value="-1">Auto</option>';
 
     if (hls) { hls.destroy(); hls = null; }
+    if (manifestTimer) { clearTimeout(manifestTimer); manifestTimer = null; }
+    video.removeAttribute('src');
+    video.load();
 
     // update source button states
     sourceList.querySelectorAll('.src-btn').forEach(b => b.classList.toggle('active', b.dataset.url === url));
 
+    // Timeout: if manifest doesn't parse in 15s, move to next source
+    manifestTimer = setTimeout(() => {
+        console.warn('Manifest timeout for', label);
+        tryNextSource(url);
+    }, 15000);
+
     if (isMp4(url)) {
+        // MP4: internal_token in query string authenticates the proxy
+        clearTimeout(manifestTimer); manifestTimer = null;
         video.src = url;
         video.play().catch(() => {});
         return;
     }
 
     if (Hls.isSupported()) {
-        hls = new Hls({ startLevel: -1 });
+        hls = new Hls({
+            startLevel: -1,
+            // Send session token with every request to api.vyla.cc
+            xhrSetup: (xhr, reqUrl) => {
+                if (reqUrl && reqUrl.includes('api.vyla.cc') && token) {
+                    xhr.withCredentials = false;
+                    try { xhr.setRequestHeader('X-Session-Token', token); } catch (_) {}
+                }
+            }
+        });
         hls.loadSource(url);
         hls.attachMedia(video);
+
         hls.on(Hls.Events.MANIFEST_PARSED, (_, data) => {
+            if (manifestTimer) { clearTimeout(manifestTimer); manifestTimer = null; }
+            playbackStarted = true;
             loader.style.display = 'none';
             video.play().catch(() => {});
             if (data.levels.length > 1) {
@@ -178,25 +217,33 @@ function switchSource(url, label) {
                 qualitySelect.style.display = '';
             }
         });
+
         hls.on(Hls.Events.LEVEL_SWITCHED, (_, data) => {
             qualitySelect.value = hls.autoLevelEnabled ? '-1' : data.level;
         });
+
         hls.on(Hls.Events.ERROR, (_, err) => {
             if (err.fatal) {
-                const next = allSources.find(s => s.url !== url && s.url !== activeUrl);
-                if (next) switchSource(next.url, next.label);
-                else showError('Tat ca nguon deu that bai.');
+                console.warn('Fatal HLS error:', err.type, err.details, 'for source:', label);
+                tryNextSource(url);
             }
         });
         return;
     }
 
+    // Safari native HLS
     if (video.canPlayType('application/vnd.apple.mpegurl')) {
         video.src = url;
-        video.play().catch(() => {});
+        video.addEventListener('loadedmetadata', () => {
+            if (manifestTimer) { clearTimeout(manifestTimer); manifestTimer = null; }
+            playbackStarted = true;
+            loader.style.display = 'none';
+            video.play().catch(() => {});
+        }, { once: true });
         return;
     }
 
+    clearTimeout(manifestTimer); manifestTimer = null;
     showError('Trinh duyet khong ho tro HLS.');
 }
 
@@ -206,12 +253,16 @@ function addSourceButton(src) {
     btn.className = 'src-btn';
     btn.dataset.url = src.url;
     btn.textContent = src.label || src.source;
-    btn.onclick = () => switchSource(src.url, src.label || src.source);
+    btn.onclick = () => {
+        // Reset tried set when manually switching
+        triedSources.clear();
+        switchSource(src.url, src.label || src.source);
+    };
     sourceList.appendChild(btn);
 }
 
+// Subtitles: proxy through our serverless function to avoid CORS
 function addSubtitleTracks(subtitles) {
-    // remove old tracks
     Array.from(video.querySelectorAll('track')).forEach(t => t.remove());
     subList.innerHTML = '';
 
@@ -222,7 +273,8 @@ function addSubtitleTracks(subtitles) {
         track.kind = 'subtitles';
         track.label = sub.label;
         track.srclang = sub.label.slice(0, 2).toLowerCase();
-        track.src = sub.file;
+        // Proxy subtitle URL through our own domain to avoid cross-origin <track> CORS block
+        track.src = '/api/vyla-sub?url=' + encodeURIComponent(sub.file);
         if (i === 0) track.default = true;
         video.appendChild(track);
 
@@ -253,6 +305,7 @@ async function loadStream() {
         loaderLabel.textContent = 'Dang tim nguon...';
         allSources = [];
         sourceList.innerHTML = '';
+        triedSources.clear();
         let started = false;
 
         const res = await fetch(endpoint, { headers: { 'X-Session-Token': t } });
@@ -306,6 +359,13 @@ async function loadStream() {
 playBtn.onclick = () => { video.paused ? video.play() : video.pause(); };
 video.addEventListener('play', () => { playBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 4h4v16H6zM14 4h4v16h-4z"/></svg>'; });
 video.addEventListener('pause', () => { playBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>'; });
+video.addEventListener('canplay', () => {
+    if (manifestTimer) { clearTimeout(manifestTimer); manifestTimer = null; }
+    if (!playbackStarted) {
+        playbackStarted = true;
+        loader.style.display = 'none';
+    }
+});
 
 muteBtn.onclick = () => { video.muted = !video.muted; updateMuteIcon(); };
 function updateMuteIcon() {
@@ -332,7 +392,7 @@ qualitySelect.onchange = () => { if (hls) hls.currentLevel = parseInt(qualitySel
 
 // Fullscreen
 fsBtn.onclick = () => {
-    if (document.fullscreenElement) {
+    if (document.fullscreenElement || document.webkitFullscreenElement) {
         (document.exitFullscreen || document.webkitExitFullscreen).call(document);
     } else {
         const el = document.getElementById('player-wrap');
