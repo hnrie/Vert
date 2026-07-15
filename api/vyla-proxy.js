@@ -48,25 +48,25 @@ export default async function handler(req) {
     }
 
     try {
-        // Build headers - only send token for api.vyla.cc
+        // Build headers - only send token for api.vyla.cc URLs that lack internal_token
         const headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
             'Accept': '*/*'
         };
 
-        if (isVylaApi) {
+        const hasInternalToken = parsed.searchParams.has('internal_token') || parsed.toString().includes('internal_token=');
+
+        if (isVylaApi && !hasInternalToken) {
             try {
                 const token = await getToken();
                 headers['X-Session-Token'] = token;
-            } catch (_) {
-                // internal_token in URL may be sufficient
-            }
+            } catch (_) {}
         }
 
         let r = await fetch(parsed.toString(), { headers, redirect: 'follow' });
 
-        // Retry with fresh token if 401 on api.vyla.cc
-        if (r.status === 401 && isVylaApi) {
+        // Retry with fresh token if 401 on api.vyla.cc (and no internal_token)
+        if (r.status === 401 && isVylaApi && !hasInternalToken) {
             cachedToken = null;
             try {
                 const newToken = await getToken();
