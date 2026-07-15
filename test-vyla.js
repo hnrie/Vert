@@ -23,12 +23,13 @@ async function runTests() {
     // ====== TEST 1: Auth endpoint ======
     console.log('\n=== TEST 1: Auth endpoint ===');
     try {
-        const authRes = await page.goto(`${BASE}/api/vyla-auth`, { waitUntil: 'networkidle', timeout: 15000 });
-        const status = authRes ? authRes.status() : 'N/A';
-        const body = await page.content();
-        const hasToken = body.includes('"token"');
-        console.log(`  Status: ${status}, Has token: ${hasToken}`);
-        results.push({ test: 'Auth endpoint', pass: status === 200 && hasToken });
+        const response = await page.evaluate(async () => {
+            const r = await fetch('/api/vyla-auth', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
+            return { status: r.status, body: await r.text() };
+        });
+        const hasToken = response.body.includes('"token"');
+        console.log(`  Status: ${response.status}, Has token: ${hasToken}`);
+        results.push({ test: 'Auth endpoint', pass: response.status === 200 && hasToken });
     } catch (e) {
         console.log(`  FAILED: ${e.message}`);
         results.push({ test: 'Auth endpoint', pass: false, error: e.message });
@@ -167,43 +168,36 @@ async function runTests() {
     // ====== TEST 6: HLS proxy ======
     console.log('\n=== TEST 6: HLS proxy (manifest fetch) ===');
     try {
-        // First get a source URL from the API
-        const tokenResp = await page.goto(`${BASE}/api/vyla-auth`, { waitUntil: 'networkidle', timeout: 10000 });
-        const authBody = await page.evaluate(() => document.body.innerText);
-        const tokenMatch = authBody.match(/"token":"([^"]+)"/);
-        const token = tokenMatch ? tokenMatch[1] : null;
+        // Get a source URL from the API via page.evaluate (uses POST for auth)
+        const sourceUrl = await page.evaluate(async () => {
+            const authRes = await fetch('/api/vyla-auth', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
+            const authData = await authRes.json();
+            const token = authData.token;
 
-        if (token) {
-            const apiResp = await page.evaluate(async (t) => {
-                const r = await fetch(`https://api.vyla.cc/movie?id=550`, { headers: { 'X-Session-Token': t } });
-                const text = await r.text();
-                const lines = text.split('\n');
-                for (const line of lines) {
-                    if (line.startsWith('data: ') && line.includes('"type":"source"')) {
-                        const ev = JSON.parse(line.slice(6));
-                        return ev.source.url;
-                    }
+            const streamRes = await fetch(`https://api.vyla.cc/movie?id=550`, { headers: { 'X-Session-Token': token } });
+            const text = await streamRes.text();
+            const lines = text.split('\n');
+            for (const line of lines) {
+                if (line.startsWith('data: ') && line.includes('"type":"source"')) {
+                    const ev = JSON.parse(line.slice(6));
+                    return ev.source.url;
                 }
-                return null;
-            }, token);
-
-            if (apiResp) {
-                console.log(`  Got source URL (${apiResp.substring(0, 60)}...)`);
-                // Try fetching through our proxy
-                const proxyResp = await page.goto(`${BASE}/api/vyla-proxy?url=${encodeURIComponent(apiResp)}`, { waitUntil: 'networkidle', timeout: 15000 });
-                const status = proxyResp ? proxyResp.status() : 'N/A';
-                const content = await page.content();
-                const isManifest = content.includes('#EXTM3U') || content.includes('m3u8');
-                const hasProxyUrls = content.includes('/api/vyla-proxy');
-                console.log(`  Proxy status: ${status}, Is manifest: ${isManifest}, Has rewritten URLs: ${hasProxyUrls}`);
-                results.push({ test: 'HLS proxy', pass: status === 200 && (isManifest || hasProxyUrls) });
-            } else {
-                console.log('  Could not get source URL from API');
-                results.push({ test: 'HLS proxy', pass: false, error: 'No source URL' });
             }
+            return null;
+        });
+
+        if (sourceUrl) {
+            console.log(`  Got source URL (${sourceUrl.substring(0, 60)}...)`);
+            const proxyResp = await page.goto(`${BASE}/api/vyla-proxy?url=${encodeURIComponent(sourceUrl)}`, { waitUntil: 'networkidle', timeout: 15000 });
+            const status = proxyResp ? proxyResp.status() : 'N/A';
+            const content = await page.content();
+            const isManifest = content.includes('#EXTM3U') || content.includes('m3u8');
+            const hasProxyUrls = content.includes('/api/vyla-proxy');
+            console.log(`  Proxy status: ${status}, Is manifest: ${isManifest}, Has rewritten URLs: ${hasProxyUrls}`);
+            results.push({ test: 'HLS proxy', pass: status === 200 && (isManifest || hasProxyUrls) });
         } else {
-            console.log('  Could not get auth token');
-            results.push({ test: 'HLS proxy', pass: false, error: 'No token' });
+            console.log('  Could not get source URL from API');
+            results.push({ test: 'HLS proxy', pass: false, error: 'No source URL' });
         }
     } catch (e) {
         console.log(`  FAILED: ${e.message}`);
