@@ -63,26 +63,19 @@ async function handleResponse(r, fetchUrl, token) {
         'Cache-Control': 's-maxage=300, stale-while-revalidate=600'
     };
 
-    // Read the body as text first - api.vyla.cc returns manifests as application/json
-    // so we can't rely on content-type alone to detect m3u8 files
-    const text = await r.text();
+    // Read as arrayBuffer first so we can handle both text (manifests) and binary (segments)
+    const buf = await r.arrayBuffer();
+    // Decode as UTF-8 for manifest detection (text() equivalent)
+    const text = new TextDecoder().decode(buf);
 
-    // Check if it's actually a manifest by content, not just content-type
+    // Check if it's actually a manifest by content
     const isManifest = text.includes('#EXTM3U') || text.includes('#EXT-X');
 
     if (!isManifest) {
-        // Not a manifest - return as-is (could be JSON, binary, etc.)
-        // Check if it looks like binary (non-printable chars)
-        const isBinary = /[\x00-\x08\x0E-\x1F]/.test(text.substring(0, 100));
-        if (isBinary) {
-            return new Response(text, {
-                status: 200,
-                headers: { 'Content-Type': contentType || 'video/mp2t', ...corsHeaders }
-            });
-        }
-        return new Response(text, {
+        // Return binary data as-is
+        return new Response(buf, {
             status: 200,
-            headers: { 'Content-Type': contentType || 'text/plain', ...corsHeaders }
+            headers: { 'Content-Type': contentType || 'video/mp2t', ...corsHeaders }
         });
     }
 
