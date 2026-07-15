@@ -188,14 +188,20 @@ function switchSource(url, label) {
         return;
     }
 
-    // Route HLS through our own proxy to avoid api.vyla.cc QUIC/HTTP3 errors
+    // Route manifest through our own proxy to avoid api.vyla.cc QUIC/HTTP3 errors
+    // Segments are fetched directly by HLS.js (with retry) to avoid proxy latency
     const proxiedUrl = url.includes('api.vyla.cc')
         ? '/api/vyla-proxy?url=' + encodeURIComponent(url)
         : url;
 
     if (Hls.isSupported()) {
         hls = new Hls({
-            startLevel: -1
+            startLevel: -1,
+            // Retry config for intermittent QUIC errors on direct segment fetches
+            fragLoadingMaxRetry: 6,
+            fragLoadingRetryDelay: 500,
+            manifestLoadingMaxRetry: 4,
+            levelLoadingMaxRetry: 4
         });
         hls.loadSource(proxiedUrl);
         hls.attachMedia(video);

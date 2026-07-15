@@ -106,7 +106,10 @@ async function handleResponse(r, fetchUrl) {
         });
     }
 
-    // For m3u8 manifests, rewrite all URLs to go through this proxy
+    // For m3u8 manifests, only rewrite KEY/MEDIA URIs (for crypto/alt audio).
+    // Segment URLs are left as-is so HLS.js fetches them directly from api.vyla.cc.
+    // The QUIC errors are intermittent and HLS.js has built-in retry logic.
+    // Proxying every segment through a serverless function adds too much latency.
     let text = await r.text();
 
     // Check if it's actually a manifest
@@ -125,18 +128,16 @@ async function handleResponse(r, fetchUrl) {
         const trimmed = line.trim();
         if (!trimmed) return line;
 
-        // Handle #EXT-X-KEY:URI="..." and #EXT-X-MEDIA:URI="..."
+        // Only rewrite URI="..." in #EXT tags (keys, media) - these need proxying for CORS
         if (trimmed.startsWith('#EXT')) {
             return line.replace(/URI="([^"]+)"/g, (match, uri) => {
                 if (uri.startsWith('http://') || uri.startsWith('https://')) {
                     return `URI="${proxyBase}${encodeURIComponent(uri)}"`;
                 }
                 if (uri.startsWith('/')) {
-                    // Resolve against api.vyla.cc if the manifest came from there
                     const origin = fetchUrl && fetchUrl.hostname === 'api.vyla.cc' ? apiOrigin : baseUrlStr.replace(/\/[^/]*$/, '');
                     return `URI="${proxyBase}${encodeURIComponent(origin + uri)}"`;
                 }
-                // Relative URI - resolve against base URL
                 if (baseUrlStr) {
                     try {
                         const resolved = new URL(uri, baseUrlStr).toString();
@@ -147,28 +148,7 @@ async function handleResponse(r, fetchUrl) {
             });
         }
 
-        // Skip comments and directives (but not URI lines which are handled above)
-        if (trimmed.startsWith('#')) return line;
-
-        // Plain absolute URL lines (segment URLs)
-        if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
-            return `${proxyBase}${encodeURIComponent(trimmed)}`;
-        }
-
-        // Absolute-path segment URLs
-        if (trimmed.startsWith('/')) {
-            const origin = fetchUrl && fetchUrl.hostname === 'api.vyla.cc' ? apiOrigin : baseUrlStr.replace(/\/[^/]*$/, '');
-            return `${proxyBase}${encodeURIComponent(origin + trimmed)}`;
-        }
-
-        // Relative segment URLs (e.g. "seg-1.ts", "quality/1080p.m3u8")
-        if (baseUrlStr) {
-            try {
-                const resolved = new URL(trimmed, baseUrlStr).toString();
-                return `${proxyBase}${encodeURIComponent(resolved)}`;
-            } catch (_) {}
-        }
-
+        // Leave segment URLs as-is - HLS.js fetches them directly
         return line;
     }).join('\n');
 
