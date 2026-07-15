@@ -59,21 +59,21 @@ export default async function handler(req) {
                     'Accept': '*/*'
                 }
             });
-            return handleResponse(retry);
+            return handleResponse(retry, parsed);
         }
 
         if (!r.ok) {
             return new Response(JSON.stringify({ error: `Upstream ${r.status}` }), { status: r.status, headers: { 'Content-Type': 'application/json' } });
         }
 
-        return handleResponse(r);
+        return handleResponse(r, parsed);
 
     } catch (err) {
         return new Response(JSON.stringify({ error: 'Failed to fetch from Vyla: ' + (err.message || 'unknown') }), { status: 502, headers: { 'Content-Type': 'application/json' } });
     }
 }
 
-async function handleResponse(r) {
+async function handleResponse(r, fetchUrl) {
     const contentType = (r.headers.get('content-type') || '').toLowerCase();
     const isManifest = contentType.includes('mpegurl') || contentType.includes('m3u8') || contentType.includes('text/plain');
 
@@ -105,6 +105,11 @@ async function handleResponse(r) {
     }
 
     const proxyBase = '/api/vyla-proxy?url=';
+    // Base URL for resolving relative paths (the URL we fetched from api.vyla.cc)
+    const baseUrlStr = fetchUrl ? fetchUrl.toString() : '';
+    const baseUrl = baseUrlStr ? new URL(baseUrlStr) : null;
+    // The origin to use for absolute-path resolution
+    const apiOrigin = 'https://api.vyla.cc';
 
     text = text.split('\n').map(line => {
         const trimmed = line.trim();
@@ -117,20 +122,39 @@ async function handleResponse(r) {
                     return `URI="${proxyBase}${encodeURIComponent(uri)}"`;
                 }
                 if (uri.startsWith('/')) {
-                    return `URI="${proxyBase}${encodeURIComponent('https://api.vyla.cc' + uri)}"`;
+                    return `URI="${proxyBase}${encodeURIComponent(apiOrigin + uri)}"`;
+                }
+                // Relative URI - resolve against base URL
+                if (baseUrl) {
+                    try {
+                        const resolved = new URL(uri, baseUrlStr).toString();
+                        return `URI="${proxyBase}${encodeURIComponent(resolved)}"`;
+                    } catch (_) {}
                 }
                 return match;
             });
         }
 
-        // Plain URL lines (segment URLs)
+        // Skip comments and directives
+        if (trimmed.startsWith('#')) return line;
+
+        // Plain absolute URL lines (segment URLs)
         if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
             return `${proxyBase}${encodeURIComponent(trimmed)}`;
         }
 
-        // Relative segment URLs
+        // Absolute-path segment URLs
         if (trimmed.startsWith('/')) {
-            return `${proxyBase}${encodeURIComponent('https://api.vyla.cc' + trimmed)}`;
+            return `${proxyBase}${encodeURIComponent(apiOrigin + trimmed)}`;
+        }
+
+        // Relative segment URLs (e.g. "seg-1.ts", "quality/1080p.m3u8")
+        // Resolve against the original fetch URL
+        if (baseUrl) {
+            try {
+                const resolved = new URL(trimmed, baseUrlStr).toString();
+                return `${proxyBase}${encodeURIComponent(resolved)}`;
+            } catch (_) {}
         }
 
         return line;
