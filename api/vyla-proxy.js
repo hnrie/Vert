@@ -1,22 +1,17 @@
 
-export const config = { runtime: 'edge' };
-
-export default async function handler(req) {
-    const url = new URL(req.url);
-    const targetUrl = url.searchParams.get('url');
-    const clientToken = url.searchParams.get('token');
+export default async function handler(req, res) {
+    const { url: targetUrl, token: clientToken } = req.query;
     if (!targetUrl) {
-        return new Response(JSON.stringify({ error: 'Missing url parameter' }), { status: 400, headers: { 'Content-Type': 'application/json' } });
+        return res.status(400).json({ error: 'Missing url parameter' });
     }
 
     let parsed;
     try {
         parsed = new URL(targetUrl);
     } catch {
-        return new Response(JSON.stringify({ error: 'Invalid url' }), { status: 400, headers: { 'Content-Type': 'application/json' } });
+        return res.status(400).json({ error: 'Invalid url' });
     }
 
-    // Allow api.vyla.cc and upstream CDN hosts
     const isVylaApi = parsed.hostname === 'api.vyla.cc';
     const allowedHostSuffixes = [
         'ironbubble.site', 'fsharetv.co', 'vidrock.baby',
@@ -28,7 +23,7 @@ export default async function handler(req) {
     );
 
     if (!isVylaApi && !isAllowedCdn) {
-        return new Response(JSON.stringify({ error: 'Host not allowed: ' + parsed.hostname }), { status: 403, headers: { 'Content-Type': 'application/json' } });
+        return res.status(403).json({ error: 'Host not allowed: ' + parsed.hostname });
     }
 
     try {
@@ -37,7 +32,6 @@ export default async function handler(req) {
             'Accept': '*/*'
         };
 
-        // Send token for api.vyla.cc if provided by client
         if (isVylaApi && clientToken) {
             headers['X-Session-Token'] = clientToken;
         }
@@ -45,86 +39,71 @@ export default async function handler(req) {
         const r = await fetch(parsed.toString(), { headers, redirect: 'follow' });
 
         if (!r.ok) {
-            return new Response(JSON.stringify({ error: `Upstream ${r.status}` }), { status: r.status, headers: { 'Content-Type': 'application/json' } });
+            return res.status(r.status).json({ error: `Upstream ${r.status}` });
         }
 
-        return handleResponse(r, parsed, clientToken);
+        const contentType = (r.headers.get('content-type') || '').toLowerCase();
+        const buf = Buffer.from(await r.arrayBuffer());
+        const text = buf.toString('utf8');
+
+        // Detect manifest by content (api.vyla.cc returns application/json for m3u8)
+        const isManifest = text.includes('#EXTM3U') || text.includes('#EXT-X');
+
+        const corsHeaders = {
+            'Access-Control-Allow-Origin': '*',
+            'Cache-Control': 's-maxage=300, stale-while-revalidate=600'
+        };
+
+        if (!isManifest) {
+            // Binary segment or JSON - return as-is
+            res.setHeader('Content-Type', contentType || 'video/mp2t');
+            Object.entries(corsHeaders).forEach(([k, v]) => res.setHeader(k, v));
+            return res.status(200).send(buf);
+        }
+
+        // Rewrite ALL URLs in manifest to go through this proxy with token
+        const proxyBase = '/api/vyla-proxy?url=';
+        const tokenParam = clientToken ? '&token=' + encodeURIComponent(clientToken) : '';
+        const baseUrlStr = parsed.toString();
+        const apiOrigin = 'https://api.vyla.cc';
+
+        function rewriteUrl(rawUrl) {
+            if (rawUrl.startsWith('http://') || rawUrl.startsWith('https://')) {
+                return `${proxyBase}${encodeURIComponent(rawUrl)}${tokenParam}`;
+            }
+            if (rawUrl.startsWith('/')) {
+                const origin = parsed.hostname === 'api.vyla.cc' ? apiOrigin : baseUrlStr.replace(/\/[^/]*$/, '');
+                return `${proxyBase}${encodeURIComponent(origin + rawUrl)}${tokenParam}`;
+            }
+            if (baseUrlStr) {
+                try {
+                    const resolved = new URL(rawUrl, baseUrlStr).toString();
+                    return `${proxyBase}${encodeURIComponent(resolved)}${tokenParam}`;
+                } catch (_) {}
+            }
+            return rawUrl;
+        }
+
+        const rewritten = text.split('\n').map(line => {
+            const trimmed = line.trim();
+            if (!trimmed) return line;
+
+            if (trimmed.startsWith('#EXT')) {
+                return line.replace(/URI="([^"]+)"/g, (match, uri) => `URI="${rewriteUrl(uri)}"`);
+            }
+
+            if (trimmed.startsWith('#')) return line;
+
+            return rewriteUrl(trimmed);
+        }).join('\n');
+
+        res.setHeader('Content-Type', 'application/vnd.apple.mpegurl; charset=utf-8');
+        res.setHeader('Cache-Control', 's-maxage=60, stale-while-revalidate=300');
+        res.setHeader('Access-Control-Allow-Origin', '*');
+        return res.status(200).send(rewritten);
 
     } catch (err) {
-        return new Response(JSON.stringify({ error: 'Failed: ' + (err.message || 'unknown') }), { status: 502, headers: { 'Content-Type': 'application/json' } });
+        console.error('Vyla proxy error:', err);
+        return res.status(502).json({ error: 'Failed: ' + (err.message || 'unknown') });
     }
-}
-
-async function handleResponse(r, fetchUrl, token) {
-    const contentType = (r.headers.get('content-type') || '').toLowerCase();
-
-    const corsHeaders = {
-        'Access-Control-Allow-Origin': '*',
-        'Cache-Control': 's-maxage=300, stale-while-revalidate=600'
-    };
-
-    // Read as arrayBuffer first so we can handle both text (manifests) and binary (segments)
-    const buf = await r.arrayBuffer();
-    // Decode as UTF-8 for manifest detection (text() equivalent)
-    const text = new TextDecoder().decode(buf);
-
-    // Check if it's actually a manifest by content
-    const isManifest = text.includes('#EXTM3U') || text.includes('#EXT-X');
-
-    if (!isManifest) {
-        // Return binary data as-is
-        return new Response(buf, {
-            status: 200,
-            headers: { 'Content-Type': contentType || 'video/mp2t', ...corsHeaders }
-        });
-    }
-
-    // Rewrite ALL URLs to go through this proxy, passing the token along
-    const proxyBase = '/api/vyla-proxy?url=';
-    const tokenParam = token ? '&token=' + encodeURIComponent(token) : '';
-    const baseUrlStr = fetchUrl ? fetchUrl.toString() : '';
-    const apiOrigin = 'https://api.vyla.cc';
-
-    function rewriteUrl(rawUrl) {
-        if (rawUrl.startsWith('http://') || rawUrl.startsWith('https://')) {
-            return `${proxyBase}${encodeURIComponent(rawUrl)}${tokenParam}`;
-        }
-        if (rawUrl.startsWith('/')) {
-            const origin = fetchUrl && fetchUrl.hostname === 'api.vyla.cc' ? apiOrigin : baseUrlStr.replace(/\/[^/]*$/, '');
-            return `${proxyBase}${encodeURIComponent(origin + rawUrl)}${tokenParam}`;
-        }
-        // Relative
-        if (baseUrlStr) {
-            try {
-                const resolved = new URL(rawUrl, baseUrlStr).toString();
-                return `${proxyBase}${encodeURIComponent(resolved)}${tokenParam}`;
-            } catch (_) {}
-        }
-        return rawUrl;
-    }
-
-    text = text.split('\n').map(line => {
-        const trimmed = line.trim();
-        if (!trimmed) return line;
-
-        // Rewrite URI="..." in EXT tags
-        if (trimmed.startsWith('#EXT')) {
-            return line.replace(/URI="([^"]+)"/g, (match, uri) => `URI="${rewriteUrl(uri)}"`);
-        }
-
-        // Skip other comments
-        if (trimmed.startsWith('#')) return line;
-
-        // Segment/variant URL lines
-        return rewriteUrl(trimmed);
-    }).join('\n');
-
-    return new Response(text, {
-        status: 200,
-        headers: {
-            'Content-Type': 'application/vnd.apple.mpegurl; charset=utf-8',
-            'Cache-Control': 's-maxage=60, stale-while-revalidate=300',
-            'Access-Control-Allow-Origin': '*'
-        }
-    });
 }
