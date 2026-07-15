@@ -3,7 +3,7 @@ const IMG = 'https://image.tmdb.org/t/p';
 const VIDKING = 'https://www.vidking.net/embed';
 const VIDKING_ORIGIN = 'https://www.vidking.net';
 const VIDEASY = 'https://player.videasy.net';
-const VYLA = 'https://vyla.pages.dev';
+const VYLA = 'https://player.vyla.cc';
 let playerSource = localStorage.getItem('vk_player') || 'videasy';
 const DEFAULT_AUDIO_SETTINGS = { enabled: false, spatial: false, volume: 0.45, width: 0.6, depth: 0.45 };
 let audioSettings = (() => {
@@ -764,7 +764,7 @@ function playContent(item, season, episode) {
         if (playerSource === 'vidking') {
             url = `${VIDKING}/tv/${item.id}/${s}/${e}?color=e50914&autoPlay=true&nextEpisode=true&episodeSelector=true`;
         } else if (playerSource === 'vyla') {
-            url = `${VYLA}/tv/${item.id}/${s}/${e}`;
+            url = `${VYLA}/?id=${item.id}&season=${s}&episode=${e}`;
         } else {
             url = `${VIDEASY}/tv/${item.id}/${s}/${e}?color=e50914&autoplayNextEpisode=true&nextEpisode=true&episodeSelector=true&overlay=true`;
         }
@@ -772,7 +772,7 @@ function playContent(item, season, episode) {
         if (playerSource === 'vidking') {
             url = `${VIDKING}/movie/${item.id}?color=e50914&autoPlay=true`;
         } else if (playerSource === 'vyla') {
-            url = `${VYLA}/movie/${item.id}`;
+            url = `${VYLA}/?id=${item.id}`;
         } else {
             url = `${VIDEASY}/movie/${item.id}?color=e50914&overlay=true`;
         }
@@ -784,7 +784,7 @@ function playContent(item, season, episode) {
 
     setTimeout(() => {
         const frame = document.getElementById('player-frame');
-        frame.innerHTML = `<iframe src="${url}" allowfullscreen allow="autoplay;fullscreen;encrypted-media;picture-in-picture"></iframe>`;
+        frame.innerHTML = `<iframe src="${url}" allowfullscreen webkitallowfullscreen mozallowfullscreen allow="autoplay *; fullscreen *; encrypted-media *; picture-in-picture *"></iframe>`;
     }, 150);
 
     const playerOverlay = document.getElementById('player-overlay');
@@ -808,6 +808,10 @@ function destroyPlayerFrame() {
 
 function closePlayer() {
     ignoreProgress = true;
+    if (document.fullscreenElement || document.webkitFullscreenElement) {
+        const fn = document.exitFullscreen || document.webkitExitFullscreen || document.mozCancelFullScreen || document.msExitFullscreen;
+        if (fn) fn.call(document);
+    }
     destroyPlayerFrame();
     const playerOverlay = document.getElementById('player-overlay');
     playerOverlay.classList.remove('active', 'show-audio-panel');
@@ -1250,8 +1254,56 @@ function wireListeners() {
 
     document.getElementById('player-back-btn').onclick = () => { playUiSound('close', -0.4); closePlayer(); };
 
+    // --- Custom fullscreen toggle (works for all players from parent context) ---
+    let justExitedFullscreen = false;
+    const fsBtn = document.getElementById('player-fullscreen-btn');
+    const fsEnterIcon = fsBtn.querySelector('.fs-enter');
+    const fsExitIcon = fsBtn.querySelector('.fs-exit');
+
+    function isFullscreen() {
+        return !!(document.fullscreenElement || document.webkitFullscreenElement);
+    }
+
+    function requestFullscreen(el) {
+        const fn = el.requestFullscreen || el.webkitRequestFullscreen || el.mozRequestFullScreen || el.msRequestFullscreen;
+        if (fn) fn.call(el);
+    }
+
+    function exitFullscreen() {
+        const fn = document.exitFullscreen || document.webkitExitFullscreen || document.mozCancelFullScreen || document.msExitFullscreen;
+        if (fn) fn.call(document);
+    }
+
+    function updateFsIcon() {
+        const active = isFullscreen();
+        fsEnterIcon.style.display = active ? 'none' : '';
+        fsExitIcon.style.display = active ? '' : 'none';
+    }
+
+    fsBtn.onclick = () => {
+        const frame = document.getElementById('player-frame');
+        if (isFullscreen()) {
+            exitFullscreen();
+        } else {
+            requestFullscreen(frame);
+        }
+    };
+    makeInteractive(fsBtn);
+
+    const onFsChange = () => {
+        updateFsIcon();
+        if (!isFullscreen()) {
+            justExitedFullscreen = true;
+            setTimeout(() => { justExitedFullscreen = false; }, 300);
+        }
+    };
+    document.addEventListener('fullscreenchange', onFsChange);
+    document.addEventListener('webkitfullscreenchange', onFsChange);
+
     document.onkeydown = e => {
         if (e.key !== 'Escape') return;
+        if (justExitedFullscreen) { justExitedFullscreen = false; return; }
+        if (isFullscreen()) { exitFullscreen(); return; }
         if (document.getElementById('player-overlay').classList.contains('active')) closePlayer();
         else if (document.getElementById('detail-overlay').classList.contains('active')) closeDetail();
     };
