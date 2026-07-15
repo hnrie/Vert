@@ -3,7 +3,7 @@ const IMG = 'https://image.tmdb.org/t/p';
 const VIDKING = 'https://www.vidking.net/embed';
 const VIDKING_ORIGIN = 'https://www.vidking.net';
 const VIDEASY = 'https://player.videasy.net';
-const VYLA = 'https://player.vyla.cc';
+const VYLA = 'vyla-player.html';
 let playerSource = localStorage.getItem('vk_player') || 'videasy';
 const DEFAULT_AUDIO_SETTINGS = { enabled: false, spatial: false, volume: 0.45, width: 0.6, depth: 0.45 };
 let audioSettings = (() => {
@@ -764,7 +764,7 @@ function playContent(item, season, episode) {
         if (playerSource === 'vidking') {
             url = `${VIDKING}/tv/${item.id}/${s}/${e}?color=e50914&autoPlay=true&nextEpisode=true&episodeSelector=true`;
         } else if (playerSource === 'vyla') {
-            url = `${VYLA}/?id=${item.id}&season=${s}&episode=${e}`;
+            url = `${VYLA}?id=${item.id}&season=${s}&episode=${e}`;
         } else {
             url = `${VIDEASY}/tv/${item.id}/${s}/${e}?color=e50914&autoplayNextEpisode=true&nextEpisode=true&episodeSelector=true&overlay=true`;
         }
@@ -772,7 +772,7 @@ function playContent(item, season, episode) {
         if (playerSource === 'vidking') {
             url = `${VIDKING}/movie/${item.id}?color=e50914&autoPlay=true`;
         } else if (playerSource === 'vyla') {
-            url = `${VYLA}/?id=${item.id}`;
+            url = `${VYLA}?id=${item.id}`;
         } else {
             url = `${VIDEASY}/movie/${item.id}?color=e50914&overlay=true`;
         }
@@ -784,7 +784,7 @@ function playContent(item, season, episode) {
 
     setTimeout(() => {
         const frame = document.getElementById('player-frame');
-        frame.innerHTML = `<iframe src="${url}" allowfullscreen webkitallowfullscreen mozallowfullscreen allow="autoplay *; fullscreen *; encrypted-media *; picture-in-picture *"></iframe>`;
+        frame.innerHTML = `<iframe src="${url}" allow="autoplay *; fullscreen *; encrypted-media *; picture-in-picture *"></iframe>`;
     }, 150);
 
     const playerOverlay = document.getElementById('player-overlay');

@@ -1,0 +1,383 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Vyla Player</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:100%;height:100%;background:#000;overflow:hidden;font-family:system-ui,sans-serif;color:#fff}
+#player-wrap{position:relative;width:100%;height:100%;display:flex;align-items:center;justify-content:center}
+video{width:100%;height:100%;background:#000;object-fit:contain}
+#loader{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;background:#000;z-index:10}
+.spinner{width:40px;height:40px;border:3px solid rgba(255,255,255,.15);border-top-color:#e50914;border-radius:50%;animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+#loader-label{font-size:.8rem;color:#888}
+#error-screen{position:absolute;inset:0;display:none;flex-direction:column;align-items:center;justify-content:center;gap:12px;background:#000;z-index:10}
+#error-screen.show{display:flex}
+#error-screen h3{font-size:1.1rem;color:#ff4444}
+#error-screen p{font-size:.85rem;color:#888;max-width:400px;text-align:center}
+#controls{position:absolute;bottom:0;left:0;right:0;padding:8px 12px;padding-bottom:calc(8px + env(safe-area-inset-bottom));background:linear-gradient(transparent,rgba(0,0,0,.85));opacity:0;transition:opacity .3s;z-index:5;pointer-events:none}
+#player-wrap:hover #controls,#player-wrap.tapped #controls{opacity:1;pointer-events:auto}
+#progress-bar{height:4px;background:rgba(255,255,255,.2);border-radius:2px;cursor:pointer;margin-bottom:8px;position:relative}
+#progress-filled{height:100%;background:#e50914;border-radius:2px;width:0;position:relative}
+#progress-filled::after{content:'';position:absolute;right:-6px;top:50%;transform:translateY(-50%);width:12px;height:12px;background:#e50914;border-radius:50%;opacity:0;transition:opacity .2s}
+#progress-bar:hover #progress-filled::after{opacity:1}
+#control-row{display:flex;align-items:center;gap:12px}
+.ctrl-btn{background:none;border:none;color:#fff;cursor:pointer;padding:4px;display:flex;align-items:center;justify-content:center;opacity:.85;transition:opacity .2s}
+.ctrl-btn:hover{opacity:1}
+.ctrl-btn svg{width:20px;height:20px}
+#time-display{font-size:.75rem;color:#aaa;margin-left:4px}
+#source-list{display:flex;gap:6px;flex-wrap:wrap;margin-left:auto;max-width:50%}
+.src-btn{background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.15);color:#ccc;padding:4px 10px;border-radius:4px;font-size:.7rem;cursor:pointer;white-space:nowrap}
+.src-btn.active{background:#e50914;border-color:#e50914;color:#fff}
+.src-btn:hover{background:rgba(255,255,255,.2)}
+#sub-list{display:flex;gap:6px;flex-wrap:wrap}
+.sub-btn{background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.15);color:#ccc;padding:3px 8px;border-radius:3px;font-size:.65rem;cursor:pointer}
+.sub-btn.active{background:#fff;color:#000}
+#top-bar{position:absolute;top:0;left:0;right:0;padding:8px 12px;padding-top:calc(8px + env(safe-area-inset-top));background:linear-gradient(rgba(0,0,0,.6),transparent);opacity:0;transition:opacity .3s;z-index:5;pointer-events:none;display:flex;align-items:center;gap:8px}
+#player-wrap:hover #top-bar,#player-wrap.tapped #top-bar{opacity:1;pointer-events:auto}
+#top-bar #title{font-size:.85rem;font-weight:600;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#fs-btn{background:none;border:none;color:#fff;cursor:pointer;padding:4px;display:flex;align-items:center;justify-content:center;opacity:.85}
+#fs-btn:hover{opacity:1}
+#fs-btn svg{width:22px;height:22px}
+#quality-select{background:rgba(0,0,0,.6);color:#fff;border:1px solid rgba(255,255,255,.2);border-radius:4px;padding:3px 6px;font-size:.7rem}
+::cue{font-size:1em;line-height:1.4;background:rgba(0,0,0,.7)}
+</style>
+</head>
+<body>
+<div id="player-wrap">
+    <video id="video" playsinline></video>
+
+    <div id="top-bar">
+        <span id="title"></span>
+        <select id="quality-select" style="display:none"><option value="-1">Auto</option></select>
+        <button id="fs-btn" title="Toan man hinh">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M21 8V5a2 2 0 0 0-2-2h-3"/><path d="M3 16v3a2 2 0 0 0 2 2h3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/></svg>
+        </button>
+    </div>
+
+    <div id="controls">
+        <div id="progress-bar"><div id="progress-filled"></div></div>
+        <div id="control-row">
+            <button class="ctrl-btn" id="play-btn"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg></button>
+            <button class="ctrl-btn" id="mute-btn"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3A4.5 4.5 0 0 0 14 7.97v8.05c1.48-.73 2.5-2.25 2.5-4.02z"/></svg></button>
+            <input type="range" id="volume" min="0" max="100" value="100" style="width:60px;accent-color:#e50914">
+            <span id="time-display">0:00 / 0:00</span>
+            <div id="sub-list"></div>
+            <div id="source-list"></div>
+        </div>
+    </div>
+
+    <div id="loader">
+        <div class="spinner"></div>
+        <span id="loader-label">Dang ket noi...</span>
+    </div>
+
+    <div id="error-screen">
+        <h3>Phat lai that bai</h3>
+        <p id="error-msg">Khong the tai nguon video. Vui long thu lai.</p>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/hls.js@latest/dist/hls.min.js"></script>
+<script>
+const API_BASE = 'https://api.vyla.cc';
+const video = document.getElementById('video');
+const loader = document.getElementById('loader');
+const loaderLabel = document.getElementById('loader-label');
+const errorScreen = document.getElementById('error-screen');
+const errorMsg = document.getElementById('error-msg');
+const playBtn = document.getElementById('play-btn');
+const muteBtn = document.getElementById('mute-btn');
+const volSlider = document.getElementById('volume');
+const progressBar = document.getElementById('progress-bar');
+const progressFilled = document.getElementById('progress-filled');
+const timeDisplay = document.getElementById('time-display');
+const sourceList = document.getElementById('source-list');
+const subList = document.getElementById('sub-list');
+const titleEl = document.getElementById('title');
+const fsBtn = document.getElementById('fs-btn');
+const qualitySelect = document.getElementById('quality-select');
+
+const params = new URLSearchParams(location.search);
+const tmdbId = params.get('id');
+const season = params.get('season');
+const episode = params.get('episode');
+
+let hls = null;
+let allSources = [];
+let activeUrl = null;
+let token = null;
+let tokenExpiresAt = 0;
+
+function isMp4(url) {
+    try {
+        const inner = new URL(url).searchParams.get('url') || url;
+        return /\.(mp4|mkv)(\?|$)/i.test(inner);
+    } catch { return /\.(mp4|mkv)(\?|$)/i.test(url); }
+}
+
+function fmtTime(s) {
+    if (!s || isNaN(s)) return '0:00';
+    const m = Math.floor(s / 60);
+    const sec = Math.floor(s % 60);
+    const h = Math.floor(m / 60);
+    return h > 0 ? `${h}:${String(m % 60).padStart(2, '0')}:${String(sec).padStart(2, '0')}` : `${m}:${String(sec).padStart(2, '0')}`;
+}
+
+function showError(msg) {
+    loader.style.display = 'none';
+    errorMsg.textContent = msg || 'Khong the tai nguon video.';
+    errorScreen.classList.add('show');
+}
+
+async function getToken() {
+    if (token && Date.now() < tokenExpiresAt) return token;
+    loaderLabel.textContent = 'Dang xac thuc...';
+    const r = await fetch('/api/vyla-auth', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
+    if (!r.ok) throw new Error('Xac thuc that bai');
+    const data = await r.json();
+    token = data.token;
+    tokenExpiresAt = Date.now() + 25 * 60 * 1000;
+    return token;
+}
+
+function switchSource(url, label) {
+    activeUrl = url;
+    loaderLabel.textContent = `Dang tai ${label}...`;
+    loader.style.display = 'flex';
+    qualitySelect.style.display = 'none';
+    qualitySelect.innerHTML = '<option value="-1">Auto</option>';
+
+    if (hls) { hls.destroy(); hls = null; }
+
+    // update source button states
+    sourceList.querySelectorAll('.src-btn').forEach(b => b.classList.toggle('active', b.dataset.url === url));
+
+    if (isMp4(url)) {
+        video.src = url;
+        video.play().catch(() => {});
+        return;
+    }
+
+    if (Hls.isSupported()) {
+        hls = new Hls({ startLevel: -1 });
+        hls.loadSource(url);
+        hls.attachMedia(video);
+        hls.on(Hls.Events.MANIFEST_PARSED, (_, data) => {
+            loader.style.display = 'none';
+            video.play().catch(() => {});
+            if (data.levels.length > 1) {
+                data.levels.forEach((level, i) => {
+                    const opt = document.createElement('option');
+                    opt.value = i;
+                    opt.textContent = level.height ? `${level.height}p` : `Level ${i}`;
+                    qualitySelect.appendChild(opt);
+                });
+                qualitySelect.style.display = '';
+            }
+        });
+        hls.on(Hls.Events.LEVEL_SWITCHED, (_, data) => {
+            qualitySelect.value = hls.autoLevelEnabled ? '-1' : data.level;
+        });
+        hls.on(Hls.Events.ERROR, (_, err) => {
+            if (err.fatal) {
+                const next = allSources.find(s => s.url !== url && s.url !== activeUrl);
+                if (next) switchSource(next.url, next.label);
+                else showError('Tat ca nguon deu that bai.');
+            }
+        });
+        return;
+    }
+
+    if (video.canPlayType('application/vnd.apple.mpegurl')) {
+        video.src = url;
+        video.play().catch(() => {});
+        return;
+    }
+
+    showError('Trinh duyet khong ho tro HLS.');
+}
+
+function addSourceButton(src) {
+    allSources.push(src);
+    const btn = document.createElement('button');
+    btn.className = 'src-btn';
+    btn.dataset.url = src.url;
+    btn.textContent = src.label || src.source;
+    btn.onclick = () => switchSource(src.url, src.label || src.source);
+    sourceList.appendChild(btn);
+}
+
+function addSubtitleTracks(subtitles) {
+    // remove old tracks
+    Array.from(video.querySelectorAll('track')).forEach(t => t.remove());
+    subList.innerHTML = '';
+
+    if (!subtitles || !subtitles.length) return;
+
+    subtitles.forEach((sub, i) => {
+        const track = document.createElement('track');
+        track.kind = 'subtitles';
+        track.label = sub.label;
+        track.srclang = sub.label.slice(0, 2).toLowerCase();
+        track.src = sub.file;
+        if (i === 0) track.default = true;
+        video.appendChild(track);
+
+        const btn = document.createElement('button');
+        btn.className = 'sub-btn' + (i === 0 ? ' active' : '');
+        btn.textContent = sub.label;
+        btn.onclick = () => {
+            subList.querySelectorAll('.sub-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            Array.from(video.textTracks).forEach((t, idx) => {
+                t.mode = (idx === i) ? 'showing' : 'hidden';
+            });
+        };
+        subList.appendChild(btn);
+    });
+}
+
+async function loadStream() {
+    if (!tmdbId) { showError('Thieu ID phim.'); return; }
+
+    try {
+        const t = await getToken();
+
+        const endpoint = season && episode
+            ? `${API_BASE}/tv?id=${tmdbId}&season=${season}&episode=${episode}`
+            : `${API_BASE}/movie?id=${tmdbId}`;
+
+        loaderLabel.textContent = 'Dang tim nguon...';
+        allSources = [];
+        sourceList.innerHTML = '';
+        let started = false;
+
+        const res = await fetch(endpoint, { headers: { 'X-Session-Token': t } });
+        if (!res.ok) {
+            if (res.status === 403) throw new Error('Khong co quyen truy cap streaming.');
+            throw new Error(`Loi API: ${res.status}`);
+        }
+
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split('\n');
+            buffer = lines.pop();
+
+            for (const line of lines) {
+                if (!line.startsWith('data: ')) continue;
+                try {
+                    const event = JSON.parse(line.slice(6));
+
+                    if (event.type === 'meta') {
+                        const title = event.meta?.title || event.meta?.name || '';
+                        titleEl.textContent = title + (season ? ` S${season}E${episode || 1}` : '');
+                        addSubtitleTracks(event.subtitles);
+                    }
+
+                    if (event.type === 'source') {
+                        addSourceButton(event.source);
+                        if (!started) {
+                            started = true;
+                            switchSource(event.source.url, event.source.label || event.source.source);
+                        }
+                    }
+
+                    if (event.type === 'done' && !started) {
+                        showError('Khong tim thay nguon video.');
+                    }
+                } catch (e) { /* skip malformed */ }
+            }
+        }
+    } catch (e) {
+        showError(e.message || 'Loi ket noi.');
+    }
+}
+
+// --- Controls ---
+playBtn.onclick = () => { video.paused ? video.play() : video.pause(); };
+video.addEventListener('play', () => { playBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 4h4v16H6zM14 4h4v16h-4z"/></svg>'; });
+video.addEventListener('pause', () => { playBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>'; });
+
+muteBtn.onclick = () => { video.muted = !video.muted; updateMuteIcon(); };
+function updateMuteIcon() {
+    muteBtn.innerHTML = video.muted
+        ? '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 9v6h4l5 5V4L7 9H3zm13.59 3L19 9.59 17.59 8.17 15.17 10.59 12.76 8.17 11.34 9.59 13.76 12l-2.42 2.41 1.42 1.42L15.17 13.41 17.59 15.83 19 14.41z"/></svg>'
+        : '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3A4.5 4.5 0 0 0 14 7.97v8.05c1.48-.73 2.5-2.25 2.5-4.02z"/></svg>';
+}
+
+volSlider.oninput = () => { video.volume = volSlider.value / 100; video.muted = volSlider.value == 0; updateMuteIcon(); };
+
+video.addEventListener('timeupdate', () => {
+    const pct = (video.currentTime / video.duration) * 100 || 0;
+    progressFilled.style.width = pct + '%';
+    timeDisplay.textContent = `${fmtTime(video.currentTime)} / ${fmtTime(video.duration)}`;
+});
+
+progressBar.onclick = (e) => {
+    const rect = progressBar.getBoundingClientRect();
+    const pct = (e.clientX - rect.left) / rect.width;
+    video.currentTime = pct * video.duration;
+};
+
+qualitySelect.onchange = () => { if (hls) hls.currentLevel = parseInt(qualitySelect.value); };
+
+// Fullscreen
+fsBtn.onclick = () => {
+    if (document.fullscreenElement) {
+        (document.exitFullscreen || document.webkitExitFullscreen).call(document);
+    } else {
+        const el = document.getElementById('player-wrap');
+        (el.requestFullscreen || el.webkitRequestFullscreen).call(el);
+    }
+};
+
+// Tap to show controls on mobile
+let tapTimer = null;
+video.addEventListener('click', () => {
+    const wrap = document.getElementById('player-wrap');
+    wrap.classList.toggle('tapped');
+    if (tapTimer) clearTimeout(tapTimer);
+    tapTimer = setTimeout(() => wrap.classList.remove('tapped'), 3000);
+});
+
+// Keyboard shortcuts
+document.addEventListener('keydown', (e) => {
+    if (e.key === ' ') { e.preventDefault(); video.paused ? video.play() : video.pause(); }
+    if (e.key === 'ArrowLeft') video.currentTime = Math.max(0, video.currentTime - 10);
+    if (e.key === 'ArrowRight') video.currentTime = Math.min(video.duration || 0, video.currentTime + 10);
+    if (e.key === 'f') fsBtn.click();
+    if (e.key === 'm') muteBtn.click();
+});
+
+// Post progress to parent
+function postProgress() {
+    try {
+        window.parent.postMessage({
+            type: 'PLAYER_EVENT',
+            data: {
+                id: tmdbId,
+                mediaType: season ? 'tv' : 'movie',
+                currentTime: video.currentTime || 0,
+                duration: video.duration || 0,
+                progress: video.duration ? (video.currentTime / video.duration * 100) : 0,
+                season: season ? parseInt(season) : null,
+                episode: episode ? parseInt(episode) : null
+            }
+        }, '*');
+    } catch (_) {}
+}
+video.addEventListener('timeupdate', () => { if (Math.random() < 0.1) postProgress(); });
+
+loadStream();
+</script>
+</body>
+</html>
