@@ -1,27 +1,10 @@
 
 export const config = { runtime: 'edge' };
 
-// Cache token at module level (shared across edge invocations)
-let cachedToken = null;
-let tokenExpiresAt = 0;
-
-async function getToken() {
-    if (cachedToken && Date.now() < tokenExpiresAt) return cachedToken;
-    const r = await fetch('https://player.vyla.cc/api/auth', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: '{}'
-    });
-    if (!r.ok) throw new Error(`Auth failed: ${r.status}`);
-    const data = await r.json();
-    cachedToken = data.token;
-    tokenExpiresAt = Date.now() + 25 * 60 * 1000;
-    return cachedToken;
-}
-
 export default async function handler(req) {
     const url = new URL(req.url);
     const targetUrl = url.searchParams.get('url');
+    const clientToken = url.searchParams.get('token');
     if (!targetUrl) {
         return new Response(JSON.stringify({ error: 'Missing url parameter' }), { status: 400, headers: { 'Content-Type': 'application/json' } });
     }
@@ -33,13 +16,14 @@ export default async function handler(req) {
         return new Response(JSON.stringify({ error: 'Invalid url' }), { status: 400, headers: { 'Content-Type': 'application/json' } });
     }
 
-    // Allow api.vyla.cc and upstream CDN hosts that appear in manifests
+    // Allow api.vyla.cc and upstream CDN hosts
     const isVylaApi = parsed.hostname === 'api.vyla.cc';
     const allowedHostSuffixes = [
-        'ironbubble.site', 'fsharetv.co', 'vidrock.baby', 
-        'mbx.notorrent2.workers.dev', 'source.heistotron.uk'
+        'ironbubble.site', 'fsharetv.co', 'vidrock.baby',
+        'mbx.notorrent2.workers.dev', 'source.heistotron.uk',
+        'mapple.club', 'vdrk.site'
     ];
-    const isAllowedCdn = allowedHostSuffixes.some(h => 
+    const isAllowedCdn = allowedHostSuffixes.some(h =>
         parsed.hostname === h || parsed.hostname.endsWith('.' + h)
     );
 
@@ -48,45 +32,30 @@ export default async function handler(req) {
     }
 
     try {
-        // Build headers - only send token for api.vyla.cc URLs that lack internal_token
         const headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
             'Accept': '*/*'
         };
 
-        const hasInternalToken = parsed.searchParams.has('internal_token') || parsed.toString().includes('internal_token=');
-
-        if (isVylaApi && !hasInternalToken) {
-            try {
-                const token = await getToken();
-                headers['X-Session-Token'] = token;
-            } catch (_) {}
+        // Send token for api.vyla.cc if provided by client
+        if (isVylaApi && clientToken) {
+            headers['X-Session-Token'] = clientToken;
         }
 
-        let r = await fetch(parsed.toString(), { headers, redirect: 'follow' });
-
-        // Retry with fresh token if 401 on api.vyla.cc (and no internal_token)
-        if (r.status === 401 && isVylaApi && !hasInternalToken) {
-            cachedToken = null;
-            try {
-                const newToken = await getToken();
-                headers['X-Session-Token'] = newToken;
-                r = await fetch(parsed.toString(), { headers, redirect: 'follow' });
-            } catch (_) {}
-        }
+        const r = await fetch(parsed.toString(), { headers, redirect: 'follow' });
 
         if (!r.ok) {
             return new Response(JSON.stringify({ error: `Upstream ${r.status}` }), { status: r.status, headers: { 'Content-Type': 'application/json' } });
         }
 
-        return handleResponse(r, parsed);
+        return handleResponse(r, parsed, clientToken);
 
     } catch (err) {
-        return new Response(JSON.stringify({ error: 'Failed to fetch: ' + (err.message || 'unknown') }), { status: 502, headers: { 'Content-Type': 'application/json' } });
+        return new Response(JSON.stringify({ error: 'Failed: ' + (err.message || 'unknown') }), { status: 502, headers: { 'Content-Type': 'application/json' } });
     }
 }
 
-async function handleResponse(r, fetchUrl) {
+async function handleResponse(r, fetchUrl, token) {
     const contentType = (r.headers.get('content-type') || '').toLowerCase();
     const isManifest = contentType.includes('mpegurl') || contentType.includes('m3u8') || contentType.includes('text/plain');
 
@@ -95,24 +64,16 @@ async function handleResponse(r, fetchUrl) {
         'Cache-Control': 's-maxage=300, stale-while-revalidate=600'
     };
 
-    // For binary segments (TS, key files), stream directly
+    // Binary segments - stream directly
     if (!isManifest) {
         return new Response(r.body, {
             status: 200,
-            headers: {
-                'Content-Type': contentType || 'video/mp2t',
-                ...corsHeaders
-            }
+            headers: { 'Content-Type': contentType || 'video/mp2t', ...corsHeaders }
         });
     }
 
-    // For m3u8 manifests, only rewrite KEY/MEDIA URIs (for crypto/alt audio).
-    // Segment URLs are left as-is so HLS.js fetches them directly from api.vyla.cc.
-    // The QUIC errors are intermittent and HLS.js has built-in retry logic.
-    // Proxying every segment through a serverless function adds too much latency.
     let text = await r.text();
 
-    // Check if it's actually a manifest
     if (!text.includes('#EXTM3U') && !text.includes('#EXT-X')) {
         return new Response(text, {
             status: 200,
@@ -120,36 +81,44 @@ async function handleResponse(r, fetchUrl) {
         });
     }
 
+    // Rewrite ALL URLs to go through this proxy, passing the token along
     const proxyBase = '/api/vyla-proxy?url=';
+    const tokenParam = token ? '&token=' + encodeURIComponent(token) : '';
     const baseUrlStr = fetchUrl ? fetchUrl.toString() : '';
     const apiOrigin = 'https://api.vyla.cc';
+
+    function rewriteUrl(rawUrl) {
+        if (rawUrl.startsWith('http://') || rawUrl.startsWith('https://')) {
+            return `${proxyBase}${encodeURIComponent(rawUrl)}${tokenParam}`;
+        }
+        if (rawUrl.startsWith('/')) {
+            const origin = fetchUrl && fetchUrl.hostname === 'api.vyla.cc' ? apiOrigin : baseUrlStr.replace(/\/[^/]*$/, '');
+            return `${proxyBase}${encodeURIComponent(origin + rawUrl)}${tokenParam}`;
+        }
+        // Relative
+        if (baseUrlStr) {
+            try {
+                const resolved = new URL(rawUrl, baseUrlStr).toString();
+                return `${proxyBase}${encodeURIComponent(resolved)}${tokenParam}`;
+            } catch (_) {}
+        }
+        return rawUrl;
+    }
 
     text = text.split('\n').map(line => {
         const trimmed = line.trim();
         if (!trimmed) return line;
 
-        // Only rewrite URI="..." in #EXT tags (keys, media) - these need proxying for CORS
+        // Rewrite URI="..." in EXT tags
         if (trimmed.startsWith('#EXT')) {
-            return line.replace(/URI="([^"]+)"/g, (match, uri) => {
-                if (uri.startsWith('http://') || uri.startsWith('https://')) {
-                    return `URI="${proxyBase}${encodeURIComponent(uri)}"`;
-                }
-                if (uri.startsWith('/')) {
-                    const origin = fetchUrl && fetchUrl.hostname === 'api.vyla.cc' ? apiOrigin : baseUrlStr.replace(/\/[^/]*$/, '');
-                    return `URI="${proxyBase}${encodeURIComponent(origin + uri)}"`;
-                }
-                if (baseUrlStr) {
-                    try {
-                        const resolved = new URL(uri, baseUrlStr).toString();
-                        return `URI="${proxyBase}${encodeURIComponent(resolved)}"`;
-                    } catch (_) {}
-                }
-                return match;
-            });
+            return line.replace(/URI="([^"]+)"/g, (match, uri) => `URI="${rewriteUrl(uri)}"`);
         }
 
-        // Leave segment URLs as-is - HLS.js fetches them directly
-        return line;
+        // Skip other comments
+        if (trimmed.startsWith('#')) return line;
+
+        // Segment/variant URL lines
+        return rewriteUrl(trimmed);
     }).join('\n');
 
     return new Response(text, {

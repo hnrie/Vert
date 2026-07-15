@@ -188,16 +188,15 @@ function switchSource(url, label) {
         return;
     }
 
-    // Route manifest through our own proxy to avoid api.vyla.cc QUIC/HTTP3 errors
-    // Segments are fetched directly by HLS.js (with retry) to avoid proxy latency
+    // Route ALL HLS traffic through our proxy to avoid QUIC + auth issues.
+    // Pass the session token so the proxy can authenticate api.vyla.cc requests.
     const proxiedUrl = url.includes('api.vyla.cc')
-        ? '/api/vyla-proxy?url=' + encodeURIComponent(url)
+        ? `/api/vyla-proxy?url=${encodeURIComponent(url)}&token=${encodeURIComponent(token || '')}`
         : url;
 
     if (Hls.isSupported()) {
         hls = new Hls({
             startLevel: -1,
-            // Retry config for intermittent QUIC errors on direct segment fetches
             fragLoadingMaxRetry: 6,
             fragLoadingRetryDelay: 500,
             manifestLoadingMaxRetry: 4,
