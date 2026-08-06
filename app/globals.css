@@ -45,7 +45,6 @@ button {
     color: inherit;
 }
 
-
 :focus-visible {
     outline: 2px solid rgba(229, 9, 20, .8);
     outline-offset: 2px;
@@ -87,7 +86,6 @@ img {
     background: #E50914;
     color: #fff;
 }
-
 
 .loader-overlay {
     position: fixed;
@@ -131,7 +129,6 @@ img {
     0% {
         transform: translateY(0);
     }
-
     100% {
         transform: translateY(-8px);
     }
@@ -158,16 +155,13 @@ img {
     0% {
         transform: translateX(-100%);
     }
-
     50% {
         width: 60%;
     }
-
     100% {
         transform: translateX(400%);
     }
 }
-
 
 #navbar {
     position: fixed;
@@ -383,7 +377,6 @@ img {
     transform: scale(0.95);
 }
 
-
 .nav-right {
     display: flex;
     align-items: center;
@@ -406,7 +399,6 @@ img {
 .nav-icon-btn:hover {
     opacity: 1;
 }
-
 
 .search-wrapper {
     display: flex;
@@ -471,7 +463,6 @@ img {
 .search-clear:hover {
     color: #fff;
 }
-
 
 .search-suggestions {
     position: absolute;
@@ -573,7 +564,6 @@ img {
 .suggest-footer:hover {
     background: rgba(255, 255, 255, .06);
 }
-
 
 .nav-avatar {
     display: flex;
@@ -986,10 +976,6 @@ img {
     font-size: .85rem;
     font-weight: 600;
     transition: all .15s;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 8px;
 }
 
 .sync-btn-primary {
@@ -1142,7 +1128,6 @@ img {
     background: rgba(255, 255, 255, .08);
 }
 
-
 #hero {
     position: relative;
     width: 100%;
@@ -1289,7 +1274,6 @@ img {
     background: rgba(51, 51, 51, .5);
 }
 
-
 .btn-hero {
     display: inline-flex;
     align-items: center;
@@ -1330,7 +1314,6 @@ img {
     background: rgba(109, 109, 110, 0.7);
     border-color: rgba(255, 255, 255, 0.2);
 }
-
 
 #main-rows {
     position: relative;
@@ -1388,7 +1371,6 @@ img {
         transform: none;
     }
 }
-
 
 .slider-wrap {
     position: relative;
@@ -1449,7 +1431,6 @@ img {
     border-radius: 4px 0 0 4px;
 }
 
-
 @keyframes cardFadeIn {
     from { opacity: 0; transform: translateY(20px) scale(0.95); }
     to { opacity: 1; transform: translateY(0) scale(1); }
@@ -1506,7 +1487,6 @@ img {
     padding: 10px;
     color: #555;
 }
-
 
 .card-panel {
     position: absolute;
@@ -1589,7 +1569,6 @@ img {
     margin-top: 2px;
 }
 
-
 .card-progress {
     position: absolute;
     bottom: 0;
@@ -1606,7 +1585,6 @@ img {
     border-radius: 0 2px 0 0;
 }
 
-
 .top-badge {
     position: absolute;
     top: 6px;
@@ -1620,7 +1598,6 @@ img {
     border-radius: 2px;
     letter-spacing: .5px;
 }
-
 
 .new-badge {
     position: absolute;
@@ -1636,7 +1613,6 @@ img {
     letter-spacing: .5px;
     text-transform: uppercase;
 }
-
 
 .page-section {
     display: none;
@@ -1707,7 +1683,6 @@ img {
 .empty-state p {
     font-size: .9rem;
 }
-
 
 .detail-overlay {
     position: fixed;
@@ -1895,7 +1870,6 @@ img {
     line-height: 1.65;
 }
 
-
 .detail-tag {
     font-size: .82rem;
     color: #777;
@@ -1906,7 +1880,6 @@ img {
 .detail-tag span {
     color: #fff;
 }
-
 
 .episodes-section {
     display: none;
@@ -2062,7 +2035,6 @@ img {
     overflow: hidden;
 }
 
-
 .similar-section {
     margin-bottom: 28px;
 }
@@ -2142,7 +2114,6 @@ img {
     overflow: hidden;
 }
 
-
 .about-section {
     border-top: 1px solid #333;
     padding-top: 24px;
@@ -2171,7 +2142,6 @@ img {
     color: #fff;
     font-weight: 500;
 }
-
 
 .player-overlay {
     position: fixed;
@@ -2281,7 +2251,6 @@ img {
     touch-action: none;
 }
 
-
 footer {
     position: relative;
     z-index: 2;
@@ -2297,7 +2266,6 @@ footer {
     color: #555;
     text-align: center;
 }
-
 
 @media(max-width:1400px) {
     .card {
@@ -2897,6 +2865,7 @@ footer {
         padding-right: max(var(--safe-right), 12px);
     }
 }
+
 .audio-panel {
     position: absolute;
     right: 20px;
@@ -2912,22 +2881,20 @@ footer {
     gap: 8px;
     font-size: .82rem;
 }
+
 .player-overlay.show-audio-panel .audio-panel {
     display: grid;
 }
+
 .audio-panel-title { font-weight: 700; color: #fff; margin-bottom: 3px; }
 .audio-panel label { display: grid; gap: 6px; color: #d0d0d0; }
 .audio-panel input[type="range"] { width: 100%; accent-color: #E50914; }
 .audio-panel input[type="checkbox"] { margin-right: 8px; accent-color: #E50914; }
+
 @media (max-width: 900px) {
     .audio-panel { position: static; margin: 12px auto 0; }
 }
 
-/* =========================================
-   NETFLIX ANIMATIONS & ELECTRON TITLEBAR
-   ========================================= */
-
-/* Titlebar for Windows/Electron */
 #electron-titlebar {
     position: fixed;
     top: 0;
@@ -2936,7 +2903,7 @@ footer {
     height: 32px;
     background: transparent;
     z-index: 9999;
-    display: none; /* Only show in Electron */
+    display: none;
 }
 
 .is-electron #electron-titlebar {
@@ -2944,7 +2911,7 @@ footer {
 }
 
 .is-electron #navbar {
-    top: 32px; /* Push navbar down when titlebar is active */
+    top: 32px;
 }
 
 .drag-region {
@@ -2979,7 +2946,6 @@ footer {
     background: #E50914 !important;
 }
 
-/* Desktop-only polish — must not override mobile bottom-sheet modals */
 @media (min-width: 769px) {
     .card {
         transition: transform .4s cubic-bezier(0.175, 0.885, 0.32, 1.275) 0.1s,
@@ -3010,29 +2976,29 @@ footer {
     }
 }
 
-/* Hero Zoom animation on load */
 @keyframes heroZoomIn {
     0% { transform: scale(1.1); }
     100% { transform: scale(1); }
 }
+
 #hero {
     animation: heroZoomIn 2s ease-out forwards;
 }
 
-/* Navbar smooth scroll effect */
 #navbar {
     background: linear-gradient(180deg, rgba(0, 0, 0, 0.9) 0%, rgba(0, 0, 0, 0.4) 60%, transparent 100%);
     transition: background-color 0.4s ease;
 }
+
 #navbar.solid {
     background-color: #141414;
     background-image: none;
 }
 
-/* Loader Animation */
 .loader-bar-fill {
     background: #E50914;
 }
+
 .loader-logo span {
     background: #E50914;
     -webkit-background-clip: text;

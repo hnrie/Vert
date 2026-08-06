@@ -1,19 +1,14 @@
-# Environment & secrets
+node_modules
+.next
+.agents
+tsconfig.tsbuildinfo
 .env
 .env.local
 .env*.local
-
-# Vercel
 .vercel
-
-# Editor
-.vscode/
-.idea/
+.vscode
+.idea
 *.swp
 *.swo
-*~
-
-# OS
 .DS_Store
 Thumbs.db
-desktop.ini
