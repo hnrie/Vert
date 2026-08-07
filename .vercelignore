@@ -1,0 +1,19 @@
+# Rust / Tauri desktop build artifacts - never needed by the web build
+src-tauri
+
+# Local dependency and build output
+node_modules
+.next
+
+# Editor / OS noise
+.vscode
+.idea
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+
+# Docs not used at build time
+ORIGINAL_REQUEST.md
+PROJECT.md
+TEST_INFRA.md
