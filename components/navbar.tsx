@@ -273,7 +273,7 @@ export default function Navbar() {
           </button>
 
           <div
-            className="nav-avatar"
+            className={`nav-avatar ${showaccount ? 'open' : ''}`}
             id="nav-avatar"
             onClick={() => setShowaccount(!showaccount)}
           >
@@ -286,7 +286,7 @@ export default function Navbar() {
             </svg>
 
             {showaccount && (
-              <div className="account-dropdown" id="account-dropdown" onClick={e => e.stopPropagation()}>
+              <div className="account-dropdown open" id="account-dropdown" onClick={e => e.stopPropagation()}>
                 <div className="account-header">
                   <img
                     src="https://upload.wikimedia.org/wikipedia/commons/0/0b/Netflix-avatar.png"
@@ -402,7 +402,7 @@ export default function Navbar() {
       </nav>
 
       {showfilter && (
-        <div className="filter-dropdown" id="filter-dropdown" style={{ display: 'grid' }}>
+        <div className="filter-dropdown open" id="filter-dropdown">
           {GENRE_LIST.map(g => (
             <div
               key={g.id}
@@ -416,7 +416,7 @@ export default function Navbar() {
       )}
 
       {showmobilemenu && (
-        <div className="mobile-dropdown" id="mobile-dropdown">
+        <div className="mobile-dropdown open" id="mobile-dropdown">
           <div
             className={`mobile-dropdown-item ${currentpage === 'home' ? 'active' : ''}`}
             onClick={() => {
