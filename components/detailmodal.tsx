@@ -195,23 +195,13 @@ export default function DetailModal() {
           </div>
 
           {detailitem.type === 'tv' && (
-            <div className="episodes-section" id="episodes-section">
-              <div className="episodes-top" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+            <div className="episodes-section active" id="episodes-section">
+              <div className="episodes-top">
                 <h3>Tập phim</h3>
                 <select
                   id="season-picker"
                   value={selectedseason}
                   onChange={e => setSelectedseason(Number(e.target.value))}
-                  style={{
-                    background: '#242424',
-                    color: '#fff',
-                    border: '1px solid #444',
-                    padding: '6px 12px',
-                    borderRadius: 4,
-                    fontSize: 14,
-                    outline: 'none',
-                    cursor: 'pointer'
-                  }}
                 >
                   {seasons.map(s => (
                     <option key={s} value={s}>
@@ -221,40 +211,36 @@ export default function DetailModal() {
                 </select>
               </div>
 
-              <div className="ep-list" id="episodes-list" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <div className="ep-list" id="episodes-list">
                 {episodes.map(ep => (
                   <div
                     key={ep.id}
-                    className="episode-card"
-                    style={{
-                      display: 'flex',
-                      gap: 16,
-                      alignItems: 'center',
-                      background: '#1a1a1a',
-                      padding: 12,
-                      borderRadius: 8,
-                      cursor: 'pointer'
-                    }}
+                    className="ep-card"
                     onClick={() => {
                       closedetail();
                       playcontent(detailitem, selectedseason, ep.episode_number);
                     }}
                   >
-                    <span style={{ fontSize: 18, fontWeight: 700, minWidth: 24, textAlign: 'center', color: '#808080' }}>
-                      {ep.episode_number}
-                    </span>
-                    <img
-                      src={
-                        ep.still_path
-                          ? `https://image.tmdb.org/t/p/w300${ep.still_path}`
-                          : 'https://via.placeholder.com/150x85/242424/ffffff?text=VERT'
-                      }
-                      alt={ep.name}
-                      style={{ width: 120, height: 70, objectFit: 'cover', borderRadius: 4 }}
-                    />
-                    <div style={{ flex: 1 }}>
-                      <div style={{ fontWeight: 600, fontSize: 15, marginBottom: 4 }}>{ep.name}</div>
-                      <div style={{ fontSize: 13, color: '#a0a0a0', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+                    <div className="ep-index">{ep.episode_number}</div>
+                    <div
+                      className="ep-thumb"
+                      style={{
+                        backgroundImage: ep.still_path
+                          ? `url(https://image.tmdb.org/t/p/w300${ep.still_path})`
+                          : undefined
+                      }}
+                    >
+                      <div className="ep-play-overlay">
+                        <svg viewBox="0 0 24 24">
+                          <path d="M6 4l15 8-15 8z" />
+                        </svg>
+                      </div>
+                    </div>
+                    <div className="ep-info">
+                      <div className="ep-info-top">
+                        <div className="ep-name">{ep.name}</div>
+                      </div>
+                      <div className="ep-synopsis">
                         {ep.overview || 'Không có mô tả cho tập này.'}
                       </div>
                     </div>

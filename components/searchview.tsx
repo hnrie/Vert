@@ -137,7 +137,7 @@ export default function SearchView() {
         <div ref={sentinelref} id="infinite-scroll-sentinel" style={{ height: 20 }}></div>
 
         {loading && (
-          <div id="search-loading" className="loading-spinner-wrap">
+          <div id="search-loading" className="loading-spinner-wrap active">
             <div className="spinner"></div>
           </div>
         )}

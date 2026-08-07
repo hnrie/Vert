@@ -236,11 +236,11 @@ export default function Navbar() {
               </button>
             )}
             {showsuggest && suggestions.length > 0 && (
-              <div className="search-suggestions" id="search-suggestions">
+              <div className="search-suggestions active" id="search-suggestions">
                 {suggestions.map(s => (
                   <div
                     key={s.id}
-                    className="suggestion-item"
+                    className="suggest-item"
                     onClick={() => {
                       opendetail(s);
                       setShowsuggest(false);
@@ -249,13 +249,15 @@ export default function Navbar() {
                     <img
                       src={s.poster || 'https://via.placeholder.com/50x75/141414/ffffff?text=VERT'}
                       alt={s.title}
-                      className="suggestion-thumb"
+                      className="suggest-poster"
                     />
-                    <div className="suggestion-meta">
-                      <span className="suggestion-title">{s.title}</span>
-                      <span className="suggestion-sub">
-                        {s.year ? s.year : ''} {s.rating ? `· ${s.rating} ★` : ''}
-                      </span>
+                    <div className="suggest-info">
+                      <div className="suggest-title">{s.title}</div>
+                      <div className="suggest-meta">
+                        <span className="sug-type">{s.type === 'tv' ? 'Phim bộ' : 'Phim lẻ'}</span>
+                        {s.year ? ` · ${s.year}` : ''}
+                        {s.rating ? ` · ${s.rating} ★` : ''}
+                      </div>
                     </div>
                   </div>
                 ))}

@@ -24,34 +24,13 @@ export default function AudioPanel() {
 
   return (
     <div
-      className="sync-modal-overlay active"
+      className="sync-overlay active"
       onClick={() => setaudiopanelopen(false)}
-      style={{
-        position: 'fixed',
-        inset: 0,
-        background: 'rgba(0,0,0,0.7)',
-        zIndex: 9990,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        padding: 16
-      }}
     >
       <div
         className="sync-modal"
         onClick={e => e.stopPropagation()}
-        style={{
-          background: '#181818',
-          borderRadius: 12,
-          padding: 24,
-          maxWidth: 360,
-          width: '100%',
-          border: '1px solid rgba(255,255,255,0.1)',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: 16,
-          color: '#fff'
-        }}
+        style={{ display: 'flex', flexDirection: 'column', gap: 16 }}
       >
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <h3 className="audio-panel-title" style={{ fontSize: '1.1rem', margin: 0 }}>Cấu hình âm thanh chân thật</h3>

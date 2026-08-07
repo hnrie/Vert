@@ -74,10 +74,10 @@ export default function HeroBanner({ item: propItem }: HeroBannerProps) {
         </div>
 
         <div className="hero-metadata" id="hero-metadata">
-          <span className="hero-match">{matchscore}</span>
-          {heroitem.year && <span className="hero-year">{heroitem.year}</span>}
-          <span className="hero-badge-age">18+</span>
-          <span className="hero-quality">4K Ultra HD</span>
+          <span className="match-score">{matchscore}</span>
+          {heroitem.year && <span className="meta-year">{heroitem.year}</span>}
+          <span className="meta-badge">18+</span>
+          <span className="meta-quality">4K Ultra HD</span>
         </div>
 
         <p className="hero-overview" id="hero-overview">

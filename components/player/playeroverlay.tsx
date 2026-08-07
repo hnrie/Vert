@@ -198,8 +198,7 @@ export default function PlayerOverlay() {
           <iframe
             src={embedurl}
             style={{ width: '100%', height: '100%', border: 'none' }}
-            allow="autoplay; fullscreen"
-            allowFullScreen
+            allow="autoplay; fullscreen; encrypted-media; picture-in-picture"
           />
         )}
       </div>

@@ -57,11 +57,11 @@ export default function ContentRow({ title, fetchEndpoint, items: propItems, isC
   return (
     <div className="content-row">
       <div className="row-head">
-        <h2 className="row-title">{title}</h2>
+        <h2>{title}</h2>
       </div>
-      <div className="row-slider-wrap">
+      <div className="slider-wrap">
         <button
-          className="slider-arrow-left"
+          className="slide-arrow l"
           onClick={scrollLeft}
           title="Cuộn sang trái"
           aria-label="Cuộn sang trái"
@@ -70,7 +70,7 @@ export default function ContentRow({ title, fetchEndpoint, items: propItems, isC
             <polyline points="15 18 9 12 15 6" />
           </svg>
         </button>
-        <div className="row-slider" ref={trackref}>
+        <div className="slider-track" ref={trackref}>
           {rowitems.map((item, idx) => (
             <MediaCard
               key={`${item.id}-${idx}`}
@@ -80,7 +80,7 @@ export default function ContentRow({ title, fetchEndpoint, items: propItems, isC
           ))}
         </div>
         <button
-          className="slider-arrow-right"
+          className="slide-arrow r"
           onClick={scrollRight}
           title="Cuộn sang phải"
           aria-label="Cuộn sang phải"
