@@ -52,14 +52,14 @@ export const GENRE_LIST = [
   { id: 10765, name: 'Viễn Tưởng & Kỳ Ảo' }
 ];
 
-export async function fetchtmdb(ep: string, extra: Record<string, string | number> = {}) {
+export async function fetchtmdb(ep: string, extra: Record<string, string | number> = {}, signal?: AbortSignal) {
   const queryparams = new URLSearchParams();
   queryparams.set('ep', ep);
   Object.entries(extra).forEach(([k, v]) => {
     queryparams.set(k, String(v));
   });
 
-  const res = await fetch(`/api/tmdb?${queryparams.toString()}`);
+  const res = await fetch(`/api/tmdb?${queryparams.toString()}`, { signal });
   if (!res.ok) {
     throw new Error(`TMDB error ${res.status}`);
   }

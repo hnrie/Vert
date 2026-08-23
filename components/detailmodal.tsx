@@ -7,7 +7,7 @@ import MediaCard from './mediacard';
 import { MediaItem, Episode, CastMember } from '../lib/types';
 
 export default function DetailModal() {
-  const { detailitem, closedetail, playcontent, togglemylist, isinmylist } = useapp();
+  const { detailitem, closedetail, playcontent, togglemylist, isinmylist, activeplayer, audiopanelopen } = useapp();
 
   const [cast, setCast] = useState<CastMember[]>([]);
   const [seasons, setSeasons] = useState<number[]>([]);
@@ -15,77 +15,87 @@ export default function DetailModal() {
   const [episodes, setEpisodes] = useState<Episode[]>([]);
   const [similar, setSimilar] = useState<MediaItem[]>([]);
 
-  useEffect(() => {
-    if (!detailitem) return;
+  const itemid = detailitem?.id ?? null;
+  const mediatype = detailitem?.type ?? null;
 
+  useEffect(() => {
+    setCast([]);
+    setSimilar([]);
+    setSeasons([]);
+    setEpisodes([]);
+    setSelectedseason(1);
+  }, [itemid, mediatype]);
+
+  useEffect(() => {
+    if (!itemid || !mediatype) return;
+
+    const ctrl = new AbortController();
     let ismounted = true;
-    const itemid = detailitem.id;
-    const mediatype = detailitem.type || 'movie';
 
     const loadDetails = async () => {
-      try {
-        const creditsRes = await fetchtmdb(`/${mediatype}/${itemid}/credits`).catch(() => ({ cast: [] }));
-        if (ismounted) setCast((creditsRes.cast || []).slice(0, 5));
+      const creditsres = await fetchtmdb(`/${mediatype}/${itemid}/credits`, {}, ctrl.signal).catch(() => null);
+      if (ismounted && creditsres) setCast((creditsres.cast || []).slice(0, 5));
 
-        const similarRes = await fetchtmdb(`/${mediatype}/${itemid}/similar`).catch(() => ({ results: [] }));
+      const similarres = await fetchtmdb(`/${mediatype}/${itemid}/similar`, {}, ctrl.signal).catch(() => null);
+      if (ismounted && similarres) {
+        const simnorm = (similarres.results || []).map((i: any) => norm(i, mediatype)).filter(Boolean) as MediaItem[];
+        setSimilar(simnorm.slice(0, 6));
+      }
+
+      if (mediatype === 'tv') {
+        const tvres = await fetchtmdb(`/tv/${itemid}`, {}, ctrl.signal).catch(() => null);
         if (ismounted) {
-          const simRaw = similarRes.results || [];
-          const simNorm = simRaw.map((i: any) => norm(i, mediatype)).filter(Boolean) as MediaItem[];
-          setSimilar(simNorm.slice(0, 6));
+          const count = Math.max(1, Number(tvres?.number_of_seasons) || 1);
+          setSeasons(Array.from({ length: count }, (_, i) => i + 1));
         }
-
-        if (mediatype === 'tv') {
-          const tvRes = await fetchtmdb(`/tv/${itemid}`).catch(() => ({ number_of_seasons: 1 }));
-          const seasonCount = tvRes.number_of_seasons || 1;
-          const sArr = Array.from({ length: seasonCount }, (_, i) => i + 1);
-          if (ismounted) {
-            setSeasons(sArr);
-            setSelectedseason(1);
-          }
-        }
-      } catch (_) {}
+      }
     };
 
     loadDetails();
     return () => {
       ismounted = false;
+      ctrl.abort();
     };
-  }, [detailitem]);
+  }, [itemid, mediatype]);
 
   useEffect(() => {
-    if (!detailitem || detailitem.type !== 'tv') return;
+    if (!itemid || mediatype !== 'tv') return;
 
+    const ctrl = new AbortController();
     let ismounted = true;
+
     const loadEpisodes = async () => {
       try {
-        const epRes = await fetchtmdb(`/tv/${detailitem.id}/season/${selectedseason}`);
-        if (ismounted) setEpisodes(epRes.episodes || []);
-      } catch (_) {
-        if (ismounted) setEpisodes([]);
+        const epres = await fetchtmdb(`/tv/${itemid}/season/${selectedseason}`, {}, ctrl.signal);
+        if (ismounted) setEpisodes(epres.episodes || []);
+      } catch (e: any) {
+        if (ismounted && e?.name !== 'AbortError') setEpisodes([]);
       }
     };
 
     loadEpisodes();
     return () => {
       ismounted = false;
+      ctrl.abort();
     };
-  }, [detailitem, selectedseason]);
+  }, [itemid, mediatype, selectedseason]);
 
   useEffect(() => {
+    if (!detailitem || activeplayer || audiopanelopen) return;
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && detailitem) {
-        closedetail();
-      }
+      if (e.key === 'Escape') closedetail();
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [detailitem, closedetail]);
+  }, [detailitem, activeplayer, audiopanelopen, closedetail]);
 
   if (!detailitem) return null;
 
   const inlist = isinmylist(detailitem.id);
-  const matchscore = detailitem.rating ? `${Math.round(parseFloat(detailitem.rating) * 10)}% Khớp` : '98% Khớp';
+  const rated = detailitem.rating ? parseFloat(detailitem.rating) : NaN;
+  const matchscore = Number.isFinite(rated) ? `${Math.round(rated * 10)}% Khớp` : null;
   const genrelist = genrenames(detailitem.genreids);
+  const firstepisode = episodes.length > 0 ? episodes[0].episode_number : 1;
 
   return (
     <div
@@ -129,8 +139,9 @@ export default function DetailModal() {
                 className="btn-hero btn-white"
                 id="detail-play-btn"
                 onClick={() => {
+                  const istv = detailitem.type === 'tv';
                   closedetail();
-                  playcontent(detailitem, detailitem.type === 'tv' ? selectedseason : null, detailitem.type === 'tv' ? 1 : null);
+                  playcontent(detailitem, istv ? selectedseason : null, istv ? firstepisode : null);
                 }}
               >
                 <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor">
@@ -168,10 +179,10 @@ export default function DetailModal() {
           <div className="detail-columns">
             <div className="detail-col-main">
               <div className="detail-meta" id="detail-meta">
-                <span style={{ color: '#46d369', fontWeight: 600 }}>{matchscore}</span>
-                {detailitem.year && <span>{detailitem.year}</span>}
-                <span style={{ border: '1px solid rgba(255,255,255,0.4)', padding: '0 4px', borderRadius: 2 }}>18+</span>
-                <span style={{ border: '1px solid rgba(255,255,255,0.4)', padding: '0 4px', borderRadius: 2 }}>HD</span>
+                {matchscore && <span className="match">{matchscore}</span>}
+                {detailitem.year && <span className="year">{detailitem.year}</span>}
+                <span className="badge">18+</span>
+                <span className="badge">HD</span>
               </div>
               <p className="detail-desc" id="detail-overview">
                 {detailitem.desc}
@@ -181,13 +192,13 @@ export default function DetailModal() {
             <div className="detail-col-side">
               {cast.length > 0 && (
                 <p className="detail-tag" id="detail-cast-line">
-                  <span style={{ color: '#808080' }}>Diễn viên: </span>
+                  <span>Diễn viên: </span>
                   {cast.map(c => c.name).join(', ')}
                 </p>
               )}
               {genrelist.length > 0 && (
                 <p className="detail-tag" id="detail-genre-line">
-                  <span style={{ color: '#808080' }}>Thể loại: </span>
+                  <span>Thể loại: </span>
                   {genrelist.join(', ')}
                 </p>
               )}
@@ -251,19 +262,19 @@ export default function DetailModal() {
           )}
 
           {similar.length > 0 && (
-            <div className="similar-section" id="similar-section" style={{ marginTop: 32 }}>
-              <h3 style={{ marginBottom: 16 }}>Nội dung tương tự</h3>
+            <div className="similar-section" id="similar-section">
+              <h3>Nội dung tương tự</h3>
               <div className="card-grid" id="similar-grid">
                 {similar.map(s => (
-                  <MediaCard key={s.id} item={s} />
+                  <MediaCard key={`${s.type}-${s.id}`} item={s} />
                 ))}
               </div>
             </div>
           )}
 
-          <div className="about-section" id="about-section" style={{ marginTop: 32 }}>
+          <div className="about-section" id="about-section">
             <h3>Về <span id="about-title">{detailitem.title}</span></h3>
-            <div id="about-details" style={{ marginTop: 8, color: '#a0a0a0', fontSize: 14 }}>
+            <div id="about-details" className="about-body">
               <p>Phim được sản xuất và cập nhật dữ liệu tự động từ cơ sở dữ liệu TMDB.</p>
             </div>
           </div>

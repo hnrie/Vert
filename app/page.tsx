@@ -17,17 +17,33 @@ import { MediaItem } from '../lib/types';
 function MainAppContent() {
   const { currentpage, mylist, history, setcurrentpage } = useapp();
 
-  const historymediaitems: MediaItem[] = history.map(h => ({
-    id: h.id,
-    title: h.title,
-    type: h.mediatype,
-    poster: h.poster,
-    backdrop: h.backdrop,
-    desc: '',
-    rating: h.rating,
-    year: h.year,
-    genreids: []
-  }));
+  React.useEffect(() => {
+    const el = document.getElementById('loader-screen');
+    if (!el) return;
+    const t = setTimeout(() => el.classList.add('hidden'), 400);
+    return () => clearTimeout(t);
+  }, []);
+
+  const continueitems = history
+    .slice()
+    .sort((a, b) => (b.updatedat || 0) - (a.updatedat || 0))
+    .filter(h => (h.progress || 0) > 0 && (h.progress || 0) < 95)
+    .map(h => ({
+      item: {
+        id: h.id,
+        title: h.title,
+        type: h.mediatype,
+        poster: h.poster,
+        backdrop: h.backdrop,
+        desc: '',
+        rating: h.rating,
+        year: h.year,
+        genreids: []
+      } as MediaItem,
+      progress: h.progress,
+      season: h.season,
+      episode: h.episode
+    }));
 
   return (
     <>
@@ -48,15 +64,15 @@ function MainAppContent() {
                   ))}
                 </div>
               ) : (
-                <div className="empty-state" id="mylist-empty" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                <div className="empty-state" id="mylist-empty">
                   <svg width="60" height="60" viewBox="0 0 24 24" fill="none" stroke="#555" strokeWidth="1">
                     <path d="M14 10H2v2h12v-2zm0-4H2v2h12V6zm4 8v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zM2 16h8v-2H2v2z" />
                   </svg>
                   <h3>Danh sách của bạn đang trống</h3>
                   <p>Thêm phim và chương trình bạn muốn xem sau</p>
                   <button
-                    className="btn-hero btn-white"
-                    style={{ marginTop: 20 }}
+                    type="button"
+                    className="btn-hero btn-white empty-state-action"
                     onClick={() => setcurrentpage('home')}
                   >
                     Khám phá nội dung
@@ -70,11 +86,11 @@ function MainAppContent() {
         {currentpage === 'home' && (
           <>
             <HeroBanner />
-            <main id="main-rows">
-              {historymediaitems.length > 0 && (
+            <div id="main-rows">
+              {continueitems.length > 0 && (
                 <ContentRow
                   title="Tiếp tục xem dành cho bạn"
-                  items={historymediaitems}
+                  entries={continueitems}
                   isContinueRow={true}
                 />
               )}
@@ -98,14 +114,14 @@ function MainAppContent() {
                 title="Phim Hành Động Kịch Tính"
                 fetchEndpoint="/discover/movie?with_genres=28"
               />
-            </main>
+            </div>
           </>
         )}
 
         {currentpage === 'movies' && (
           <>
             <HeroBanner />
-            <main id="main-rows">
+            <div id="main-rows">
               <ContentRow
                 title="Phim Chiếu Rạp Phổ Biến"
                 fetchEndpoint="/movie/popular"
@@ -122,14 +138,14 @@ function MainAppContent() {
                 title="Phim Hoạt Hình Chiếu Rạp"
                 fetchEndpoint="/discover/movie?with_genres=16"
               />
-            </main>
+            </div>
           </>
         )}
 
         {currentpage === 'tv' && (
           <>
             <HeroBanner />
-            <main id="main-rows">
+            <div id="main-rows">
               <ContentRow
                 title="Loạt Phim Truyền Hình Phổ Biến"
                 fetchEndpoint="/tv/popular"
@@ -146,7 +162,7 @@ function MainAppContent() {
                 title="Phim Chính Kịch Sâu Sắc"
                 fetchEndpoint="/discover/tv?with_genres=18"
               />
-            </main>
+            </div>
           </>
         )}
       </main>

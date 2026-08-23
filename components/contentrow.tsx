@@ -3,66 +3,56 @@
 import React, { useEffect, useState, useRef } from 'react';
 import MediaCard from './mediacard';
 import { fetchtmdb, norm } from '../lib/tmdb';
-import { MediaItem } from '../lib/types';
+import { MediaItem, RowEntry } from '../lib/types';
 
 interface ContentRowProps {
   title: string;
   fetchEndpoint?: string;
-  items?: MediaItem[];
+  entries?: RowEntry[];
   isContinueRow?: boolean;
 }
 
-export default function ContentRow({ title, fetchEndpoint, items: propItems, isContinueRow }: ContentRowProps) {
-  const [rowitems, setRowitems] = useState<MediaItem[]>(propItems || []);
+export default function ContentRow({ title, fetchEndpoint, entries, isContinueRow }: ContentRowProps) {
+  const [fetched, setFetched] = useState<MediaItem[]>([]);
   const trackref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (propItems) {
-      setRowitems(propItems);
-      return;
-    }
+    if (entries || !fetchEndpoint) return;
 
-    if (!fetchEndpoint) return;
-
-    let ismounted = true;
+    const ctrl = new AbortController();
     const loadItems = async () => {
       try {
-        const res = await fetchtmdb(fetchEndpoint);
+        const res = await fetchtmdb(fetchEndpoint, {}, ctrl.signal);
         const raw = res.results || [];
-        const normalized = raw.map((i: any) => norm(i)).filter(Boolean) as MediaItem[];
-        if (ismounted) setRowitems(normalized);
+        setFetched(raw.map((i: any) => norm(i)).filter(Boolean) as MediaItem[]);
       } catch (_) {}
     };
 
     loadItems();
-    return () => {
-      ismounted = false;
-    };
-  }, [fetchEndpoint, propItems]);
+    return () => ctrl.abort();
+  }, [fetchEndpoint, entries]);
 
-  if (!rowitems || rowitems.length === 0) return null;
+  const rowentries: RowEntry[] = entries || fetched.map(item => ({ item }));
 
-  const scrollLeft = () => {
-    if (trackref.current) {
-      trackref.current.scrollBy({ left: -800, behavior: 'smooth' });
-    }
+  if (rowentries.length === 0) return null;
+
+  const scrollby = (dir: number) => {
+    const el = trackref.current;
+    if (!el) return;
+    el.scrollBy({ left: dir * Math.max(320, el.clientWidth * 0.8), behavior: 'smooth' });
   };
 
-  const scrollRight = () => {
-    if (trackref.current) {
-      trackref.current.scrollBy({ left: 800, behavior: 'smooth' });
-    }
-  };
+  const istop = !isContinueRow && title.includes('Top');
 
   return (
-    <div className="content-row">
+    <section className="content-row">
       <div className="row-head">
         <h2>{title}</h2>
       </div>
       <div className="slider-wrap">
         <button
           className="slide-arrow l"
-          onClick={scrollLeft}
+          onClick={() => scrollby(-1)}
           title="Cuộn sang trái"
           aria-label="Cuộn sang trái"
         >
@@ -71,17 +61,20 @@ export default function ContentRow({ title, fetchEndpoint, items: propItems, isC
           </svg>
         </button>
         <div className="slider-track" ref={trackref}>
-          {rowitems.map((item, idx) => (
+          {rowentries.map((entry, idx) => (
             <MediaCard
-              key={`${item.id}-${idx}`}
-              item={item}
-              badge={isContinueRow ? undefined : idx < 10 && title.includes('Top') ? `TOP ${idx + 1}` : undefined}
+              key={`${entry.item.type}-${entry.item.id}-${entry.season ?? ''}-${entry.episode ?? ''}-${idx}`}
+              item={entry.item}
+              progress={entry.progress}
+              season={entry.season}
+              episode={entry.episode}
+              badge={istop && idx < 10 ? `TOP ${idx + 1}` : undefined}
             />
           ))}
         </div>
         <button
           className="slide-arrow r"
-          onClick={scrollRight}
+          onClick={() => scrollby(1)}
           title="Cuộn sang phải"
           aria-label="Cuộn sang phải"
         >
@@ -90,6 +83,6 @@ export default function ContentRow({ title, fetchEndpoint, items: propItems, isC
           </svg>
         </button>
       </div>
-    </div>
+    </section>
   );
 }

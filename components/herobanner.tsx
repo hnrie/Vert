@@ -19,15 +19,17 @@ export default function HeroBanner({ item: propItem }: HeroBannerProps) {
       return;
     }
 
+    const ctrl = new AbortController();
     let ismounted = true;
+
     const fetchHero = async () => {
       try {
-        const res = await fetchtmdb('/trending/all/day');
-        const results = res.results || [];
-        const valid = results.map((i: any) => norm(i)).filter(Boolean) as MediaItem[];
-        if (valid.length > 0 && ismounted) {
-          const picked = valid[Math.floor(Math.random() * Math.min(5, valid.length))];
-          setHeroitem(picked);
+        const res = await fetchtmdb('/trending/all/day', {}, ctrl.signal);
+        const valid = (res.results || []).map((i: any) => norm(i)).filter(Boolean) as MediaItem[];
+        const withart = valid.filter(i => i.backdrop);
+        const pool = withart.length > 0 ? withart : valid;
+        if (pool.length > 0 && ismounted) {
+          setHeroitem(pool[Math.floor(Math.random() * Math.min(5, pool.length))]);
         }
       } catch (_) {}
     };
@@ -35,19 +37,21 @@ export default function HeroBanner({ item: propItem }: HeroBannerProps) {
     fetchHero();
     return () => {
       ismounted = false;
+      ctrl.abort();
     };
   }, [propItem]);
 
   if (!heroitem) {
     return (
-      <header id="hero" style={{ minHeight: '60vh', background: '#141414' }}>
+      <header id="hero" className="hero-empty">
         <div className="hero-vignette"></div>
         <div className="hero-bottom-fade"></div>
       </header>
     );
   }
 
-  const matchscore = heroitem.rating ? `${Math.round(parseFloat(heroitem.rating) * 10)}% Khớp` : '98% Khớp';
+  const rated = heroitem.rating ? parseFloat(heroitem.rating) : NaN;
+  const matchscore = Number.isFinite(rated) ? `${Math.round(rated * 10)}% Khớp` : null;
   const typebadge = heroitem.type === 'tv' ? 'LOẠT PHIM' : 'PHIM CHIẾU RẠP';
 
   return (
@@ -74,7 +78,7 @@ export default function HeroBanner({ item: propItem }: HeroBannerProps) {
         </div>
 
         <div className="hero-metadata" id="hero-metadata">
-          <span className="match-score">{matchscore}</span>
+          {matchscore && <span className="match-score">{matchscore}</span>}
           {heroitem.year && <span className="meta-year">{heroitem.year}</span>}
           <span className="meta-badge">18+</span>
           <span className="meta-quality">4K Ultra HD</span>

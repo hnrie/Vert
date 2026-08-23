@@ -13,6 +13,10 @@ export async function GET(req: NextRequest) {
         return NextResponse.json({ error: 'Invalid url' }, { status: 400 });
     }
 
+    if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
+        return NextResponse.json({ error: 'Protocol not allowed' }, { status: 400 });
+    }
+
     const allowedhosts = ['cache.vdrk.site', 'sub.vdrk.site'];
     if (!allowedhosts.some(h => parsed.hostname === h || parsed.hostname.endsWith('.' + h))) {
         return NextResponse.json({ error: 'Host not allowed' }, { status: 403 });
