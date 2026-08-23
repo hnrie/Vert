@@ -33,15 +33,24 @@ export default function Navbar() {
   const [showfilter, setShowfilter] = useState<boolean>(false);
   const [showmobilemenu, setShowmobilemenu] = useState<boolean>(false);
 
-  const suggesttimer = useRef<any>(null);
+  const suggesttimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const suggestctrl = useRef<AbortController | null>(null);
   const navref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const handleScroll = () => {
       setissolid(window.scrollY > 10);
     };
-    window.addEventListener('scroll', handleScroll);
+    handleScroll();
+    window.addEventListener('scroll', handleScroll, { passive: true });
     return () => window.removeEventListener('scroll', handleScroll);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (suggesttimer.current) clearTimeout(suggesttimer.current);
+      if (suggestctrl.current) suggestctrl.current.abort();
+    };
   }, []);
 
   useEffect(() => {
@@ -60,6 +69,7 @@ export default function Navbar() {
   const handleSearchInput = (val: string) => {
     setSearchinput(val);
     if (suggesttimer.current) clearTimeout(suggesttimer.current);
+    if (suggestctrl.current) suggestctrl.current.abort();
 
     if (!val.trim()) {
       setSuggestions([]);
@@ -68,14 +78,19 @@ export default function Navbar() {
     }
 
     suggesttimer.current = setTimeout(async () => {
+      const ctrl = new AbortController();
+      suggestctrl.current = ctrl;
       try {
-        const res = await fetchtmdb('/search/multi', { query: val.trim() });
+        const res = await fetchtmdb('/search/multi', { query: val.trim() }, ctrl.signal);
         const raw = res.results || [];
         const items = raw.map((i: any) => norm(i)).filter(Boolean) as MediaItem[];
         setSuggestions(items.slice(0, 6));
-        setShowsuggest(true);
-      } catch (_) {
-        setSuggestions([]);
+        setShowsuggest(items.length > 0);
+      } catch (e: any) {
+        if (e?.name !== 'AbortError') {
+          setSuggestions([]);
+          setShowsuggest(false);
+        }
       }
     }, 250);
   };
@@ -246,11 +261,11 @@ export default function Navbar() {
                       setShowsuggest(false);
                     }}
                   >
-                    <img
-                      src={s.poster || 'https://via.placeholder.com/50x75/141414/ffffff?text=VERT'}
-                      alt={s.title}
-                      className="suggest-poster"
-                    />
+                    {s.poster ? (
+                      <img src={s.poster} alt={s.title} className="suggest-poster" loading="lazy" />
+                    ) : (
+                      <div className="suggest-poster suggest-poster-empty" aria-hidden="true">VERT</div>
+                    )}
                     <div className="suggest-info">
                       <div className="suggest-title">{s.title}</div>
                       <div className="suggest-meta">
@@ -429,8 +444,8 @@ export default function Navbar() {
           <div
             className={`mobile-dropdown-item ${currentpage === 'filter' ? 'active' : ''}`}
             onClick={() => {
-              setShowfilter(!showfilter);
               setShowmobilemenu(false);
+              setShowfilter(true);
             }}
           >
             Lọc

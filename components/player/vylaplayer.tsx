@@ -8,7 +8,6 @@ interface VylaPlayerProps {
   item: MediaItem;
   season?: number | null;
   episode?: number | null;
-  onClose?: () => void;
 }
 
 interface SourceItem {
@@ -22,13 +21,17 @@ interface SubItem {
   file: string;
 }
 
-export default function VylaPlayer({ item, season, episode, onClose }: VylaPlayerProps) {
+export default function VylaPlayer({ item, season, episode }: VylaPlayerProps) {
   const playerwrapRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const hlsRef = useRef<Hls | null>(null);
   const tokenRef = useRef<string | null>(null);
   const triedSourcesRef = useRef<Set<string>>(new Set());
-  const manifestTimerRef = useRef<any>(null);
+  const manifestTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const sourcesRef = useRef<SourceItem[]>([]);
+  const activeUrlRef = useRef<string | null>(null);
+  const disposedRef = useRef<boolean>(false);
+  const lastreportRef = useRef<number>(0);
 
   const [title, setTitle] = useState<string>('');
   const [sources, setSources] = useState<SourceItem[]>([]);
@@ -72,14 +75,24 @@ export default function VylaPlayer({ item, season, episode, onClose }: VylaPlaye
     const r = await fetch('/api/vyla-auth', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
     if (!r.ok) throw new Error('Xác thực thất bại');
     const data = await r.json();
-    tokenRef.current = data.token;
-    return data.token;
+    const tok = String(data?.token || '');
+    if (!tok) throw new Error('Xác thực thất bại');
+    tokenRef.current = tok;
+    return tok;
+  };
+
+  const cleartimer = () => {
+    if (manifestTimerRef.current) {
+      clearTimeout(manifestTimerRef.current);
+      manifestTimerRef.current = null;
+    }
   };
 
   const trynextsource = (failedurl?: string) => {
-    if (manifestTimerRef.current) clearTimeout(manifestTimerRef.current);
+    cleartimer();
+    if (disposedRef.current) return;
     if (failedurl) triedSourcesRef.current.add(failedurl);
-    const next = sources.find(s => !triedSourcesRef.current.has(s.url));
+    const next = sourcesRef.current.find(s => !triedSourcesRef.current.has(s.url));
     if (next) {
       switchsource(next.url, next.label || next.source);
     } else {
@@ -89,6 +102,10 @@ export default function VylaPlayer({ item, season, episode, onClose }: VylaPlaye
   };
 
   const switchsource = (url: string, label?: string) => {
+    if (disposedRef.current) return;
+
+    triedSourcesRef.current.add(url);
+    activeUrlRef.current = url;
     setActiveUrl(url);
     setIsloading(true);
     setError(null);
@@ -100,20 +117,30 @@ export default function VylaPlayer({ item, season, episode, onClose }: VylaPlaye
       hlsRef.current.destroy();
       hlsRef.current = null;
     }
-    if (manifestTimerRef.current) clearTimeout(manifestTimerRef.current);
+    cleartimer();
 
     const vid = videoRef.current;
     if (!vid) return;
     vid.removeAttribute('src');
     vid.load();
 
+    const stale = () => disposedRef.current || activeUrlRef.current !== url;
+
     manifestTimerRef.current = setTimeout(() => {
-      trynextsource(url);
+      if (!stale()) trynextsource(url);
     }, 15000);
 
     if (isMp4(url)) {
-      if (manifestTimerRef.current) clearTimeout(manifestTimerRef.current);
       vid.src = url;
+      vid.addEventListener('loadedmetadata', () => {
+        cleartimer();
+        if (stale()) return;
+        setIsloading(false);
+      }, { once: true });
+      vid.addEventListener('error', () => {
+        cleartimer();
+        if (!stale()) trynextsource(url);
+      }, { once: true });
       vid.play().catch(() => {});
       return;
     }
@@ -140,26 +167,33 @@ export default function VylaPlayer({ item, season, episode, onClose }: VylaPlaye
       hls.attachMedia(vid);
 
       hls.on(Hls.Events.MANIFEST_PARSED, (_, data) => {
-        if (manifestTimerRef.current) clearTimeout(manifestTimerRef.current);
+        cleartimer();
+        if (stale()) return;
         setIsloading(false);
         vid.play().catch(() => {});
         if (data.levels.length > 1) {
-          const lvls = data.levels.map((lvl, i) => ({
+          setLevels(data.levels.map((lvl, i) => ({
             id: i,
             label: lvl.height ? `${lvl.height}p` : `Level ${i}`
-          }));
-          setLevels(lvls);
+          })));
         }
       });
 
       hls.on(Hls.Events.LEVEL_SWITCHED, (_, data) => {
+        if (stale()) return;
         setCurrentlevel(hls.autoLevelEnabled ? -1 : data.level);
       });
 
+      let recoveries = 0;
       hls.on(Hls.Events.ERROR, (_, err) => {
-        if (err.fatal) {
-          trynextsource(url);
+        if (!err.fatal || stale()) return;
+        if (recoveries < 2 && (err.type === Hls.ErrorTypes.NETWORK_ERROR || err.type === Hls.ErrorTypes.MEDIA_ERROR)) {
+          recoveries++;
+          if (err.type === Hls.ErrorTypes.NETWORK_ERROR) hls.startLoad();
+          else hls.recoverMediaError();
+          return;
         }
+        trynextsource(url);
       });
       return;
     }
@@ -167,20 +201,37 @@ export default function VylaPlayer({ item, season, episode, onClose }: VylaPlaye
     if (vid.canPlayType('application/vnd.apple.mpegurl')) {
       vid.src = proxiedurl;
       vid.addEventListener('loadedmetadata', () => {
-        if (manifestTimerRef.current) clearTimeout(manifestTimerRef.current);
+        cleartimer();
+        if (stale()) return;
         setIsloading(false);
         vid.play().catch(() => {});
       }, { once: true });
       return;
     }
 
-    if (manifestTimerRef.current) clearTimeout(manifestTimerRef.current);
+    cleartimer();
     setError('Trình duyệt không hỗ trợ HLS.');
     setIsloading(false);
   };
 
   useEffect(() => {
-    let ismounted = true;
+    disposedRef.current = false;
+    triedSourcesRef.current = new Set();
+    sourcesRef.current = [];
+    activeUrlRef.current = null;
+    tokenRef.current = null;
+
+    setSources([]);
+    setActiveUrl(null);
+    setSubtitles([]);
+    setActivesub(0);
+    setLevels([]);
+    setCurrentlevel(-1);
+    setError(null);
+    setIsloading(true);
+    setLoadlabel('Đang kết nối...');
+
+    const ctrl = new AbortController();
 
     const loadstream = async () => {
       if (!item.id) {
@@ -190,15 +241,15 @@ export default function VylaPlayer({ item, season, episode, onClose }: VylaPlaye
       }
       try {
         const tok = await gettoken();
+        if (disposedRef.current) return;
+
         const apiurl = season && episode
           ? `https://api.vyla.cc/tv?id=${item.id}&season=${season}&episode=${episode}`
           : `https://api.vyla.cc/movie?id=${item.id}`;
 
-        if (ismounted) setLoadlabel('Đang tìm nguồn...');
-        triedSourcesRef.current.clear();
-        setSources([]);
+        setLoadlabel('Đang tìm nguồn...');
 
-        const res = await fetch(apiurl, { headers: { 'X-Session-Token': tok } });
+        const res = await fetch(apiurl, { headers: { 'X-Session-Token': tok }, signal: ctrl.signal });
         if (!res.ok) {
           if (res.status === 403) throw new Error('Không có quyền truy cập streaming.');
           throw new Error(`Lỗi API: ${res.status}`);
@@ -210,7 +261,7 @@ export default function VylaPlayer({ item, season, episode, onClose }: VylaPlaye
         let buffer = '';
         let started = false;
 
-        while (true) {
+        while (!disposedRef.current) {
           const { done, value } = await reader.read();
           if (done) break;
           buffer += decoder.decode(value, { stream: true });
@@ -219,36 +270,37 @@ export default function VylaPlayer({ item, season, episode, onClose }: VylaPlaye
 
           for (const line of lines) {
             if (!line.startsWith('data: ')) continue;
+            let event: any;
             try {
-              const event = JSON.parse(line.slice(6));
-              if (event.type === 'meta') {
-                const t = event.meta?.title || event.meta?.name || item.title;
-                if (ismounted) {
-                  setTitle(t + (season ? ` S${season}E${episode || 1}` : ''));
-                  setSubtitles(event.subtitles || []);
-                }
+              event = JSON.parse(line.slice(6));
+            } catch (_) {
+              continue;
+            }
+            if (disposedRef.current) return;
+
+            if (event.type === 'meta') {
+              const t = event.meta?.title || event.meta?.name || item.title;
+              setTitle(t + (season ? ` S${season}E${episode || 1}` : ''));
+              if (Array.isArray(event.subtitles)) setSubtitles(event.subtitles.filter((s: any) => s && s.file));
+            }
+            if (event.type === 'source' && event.source?.url) {
+              const src: SourceItem = event.source;
+              if (sourcesRef.current.some(s => s.url === src.url)) continue;
+              sourcesRef.current = [...sourcesRef.current, src];
+              setSources(sourcesRef.current);
+              if (!started) {
+                started = true;
+                switchsource(src.url, src.label || src.source);
               }
-              if (event.type === 'source') {
-                const src: SourceItem = event.source;
-                if (ismounted) {
-                  setSources(prev => [...prev, src]);
-                  if (!started) {
-                    started = true;
-                    switchsource(src.url, src.label || src.source);
-                  }
-                }
-              }
-              if (event.type === 'done' && !started) {
-                if (ismounted) {
-                  setError('Không tìm thấy nguồn video.');
-                  setIsloading(false);
-                }
-              }
-            } catch (_) {}
+            }
+            if (event.type === 'done' && !started) {
+              setError('Không tìm thấy nguồn video.');
+              setIsloading(false);
+            }
           }
         }
       } catch (e: any) {
-        if (ismounted) {
+        if (!disposedRef.current && e?.name !== 'AbortError') {
           setError(e.message || 'Lỗi kết nối.');
           setIsloading(false);
         }
@@ -258,11 +310,15 @@ export default function VylaPlayer({ item, season, episode, onClose }: VylaPlaye
     loadstream();
 
     return () => {
-      ismounted = false;
-      if (hlsRef.current) hlsRef.current.destroy();
-      if (manifestTimerRef.current) clearTimeout(manifestTimerRef.current);
+      disposedRef.current = true;
+      ctrl.abort();
+      cleartimer();
+      if (hlsRef.current) {
+        hlsRef.current.destroy();
+        hlsRef.current = null;
+      }
     };
-  }, [item, season, episode]);
+  }, [item.id, season, episode]);
 
   const toggleplay = () => {
     const vid = videoRef.current;
@@ -316,11 +372,12 @@ export default function VylaPlayer({ item, season, episode, onClose }: VylaPlaye
   };
 
   const selectsub = (idx: number) => {
-    setActivesub(idx);
+    const next = activesub === idx ? -1 : idx;
+    setActivesub(next);
     const vid = videoRef.current;
     if (!vid) return;
     Array.from(vid.textTracks).forEach((t, i) => {
-      t.mode = i === idx ? 'showing' : 'hidden';
+      t.mode = i === next ? 'showing' : 'hidden';
     });
   };
 
@@ -328,13 +385,19 @@ export default function VylaPlayer({ item, season, episode, onClose }: VylaPlaye
     const handleKey = (e: KeyboardEvent) => {
       const vid = videoRef.current;
       if (!vid) return;
-      if (e.key === ' ') {
+
+      const t = e.target as HTMLElement | null;
+      if (t && (t.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(t.tagName))) return;
+
+      if (e.key === ' ' || e.key === 'k') {
         e.preventDefault();
         toggleplay();
       } else if (e.key === 'ArrowLeft') {
+        e.preventDefault();
         vid.currentTime = Math.max(0, vid.currentTime - 10);
       } else if (e.key === 'ArrowRight') {
-        vid.currentTime = Math.min(vid.duration || 0, vid.currentTime + 10);
+        e.preventDefault();
+        vid.currentTime = Math.min(vid.duration || vid.currentTime, vid.currentTime + 10);
       } else if (e.key === 'f') {
         togglefullscreen();
       } else if (e.key === 'm') {
@@ -353,7 +416,8 @@ export default function VylaPlayer({ item, season, episode, onClose }: VylaPlaye
       ref={playerwrapRef}
       onMouseEnter={() => setShowcontrols(true)}
       onMouseLeave={() => setShowcontrols(false)}
-      onClick={() => setShowcontrols(prev => !prev)}
+      onMouseMove={() => setShowcontrols(true)}
+      onClick={() => setShowcontrols(true)}
       style={{ position: 'relative', width: '100%', height: '100%', background: '#000', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
     >
       <video
@@ -365,33 +429,38 @@ export default function VylaPlayer({ item, season, episode, onClose }: VylaPlaye
         onPause={() => setIsplaying(false)}
         onTimeUpdate={() => {
           const vid = videoRef.current;
-          if (vid) {
-            setCurtime(vid.currentTime || 0);
-            setDuration(vid.duration || 0);
-            if (Math.random() < 0.1 && typeof window !== 'undefined') {
-              window.postMessage({
-                type: 'PLAYER_EVENT',
-                data: {
-                  id: item.id,
-                  mediaType: season ? 'tv' : 'movie',
-                  currentTime: vid.currentTime || 0,
-                  duration: vid.duration || 0,
-                  progress: vid.duration ? (vid.currentTime / vid.duration) * 100 : 0,
-                  season: season || null,
-                  episode: episode || null
-                }
-              }, '*');
-            }
+          if (!vid) return;
+
+          const time = vid.currentTime || 0;
+          const dur = Number.isFinite(vid.duration) ? vid.duration : 0;
+          setCurtime(time);
+          setDuration(dur);
+
+          const now = Date.now();
+          if (dur > 0 && now - lastreportRef.current >= 5000) {
+            lastreportRef.current = now;
+            window.postMessage({
+              type: 'PLAYER_EVENT',
+              data: {
+                id: item.id,
+                mediaType: item.type,
+                currentTime: time,
+                duration: dur,
+                progress: (time / dur) * 100,
+                season: season || null,
+                episode: episode || null
+              }
+            }, window.location.origin);
           }
         }}
         onCanPlay={() => setIsloading(false)}
       >
         {subtitles.map((sub, i) => (
           <track
-            key={i}
+            key={`${sub.file}-${i}`}
             kind="subtitles"
-            label={sub.label}
-            srcLang={sub.label.slice(0, 2).toLowerCase()}
+            label={sub.label || `Phụ đề ${i + 1}`}
+            srcLang={(sub.label || 'vi').slice(0, 2).toLowerCase()}
             src={sub.file.startsWith('data:') ? sub.file : `/api/vyla-sub?url=${encodeURIComponent(sub.file)}`}
             default={i === 0}
           />
@@ -514,7 +583,10 @@ export default function VylaPlayer({ item, season, episode, onClose }: VylaPlaye
                 <button
                   key={i}
                   className={`sub-btn ${activesub === i ? 'active' : ''}`}
-                  onClick={() => selectsub(i)}
+                  onClick={e => {
+                    e.stopPropagation();
+                    selectsub(i);
+                  }}
                   style={{
                     background: activesub === i ? '#fff' : 'rgba(255,255,255,0.1)',
                     border: '1px solid rgba(255,255,255,0.15)',
@@ -536,8 +608,9 @@ export default function VylaPlayer({ item, season, episode, onClose }: VylaPlaye
               <button
                 key={i}
                 className={`src-btn ${activeUrl === s.url ? 'active' : ''}`}
-                onClick={() => {
-                  triedSourcesRef.current.clear();
+                onClick={e => {
+                  e.stopPropagation();
+                  triedSourcesRef.current = new Set();
                   switchsource(s.url, s.label || s.source);
                 }}
                 style={{

@@ -9,7 +9,8 @@ const nextconfig = {
       },
       {
         protocol: 'https',
-        hostname: '**'
+        hostname: 'upload.wikimedia.org',
+        pathname: '/**'
       }
     ]
   }

@@ -43,18 +43,37 @@ interface AppContextType {
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
+const defaultaudio: AudioSettings = {
+  enabled: false,
+  spatial: false,
+  volume: 0.45,
+  width: 0.6,
+  depth: 0.45
+};
+
+function clamp01(v: any, fallback: number) {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.max(0, Math.min(1, n));
+}
+
+function sanitizeaudio(raw: any): AudioSettings {
+  if (!raw || typeof raw !== 'object') return { ...defaultaudio };
+  return {
+    enabled: Boolean(raw.enabled),
+    spatial: Boolean(raw.spatial),
+    volume: clamp01(raw.volume, defaultaudio.volume),
+    width: clamp01(raw.width, defaultaudio.width),
+    depth: clamp01(raw.depth, defaultaudio.depth)
+  };
+}
+
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const [currentpage, setcurrentpage] = useState<string>('home');
   const [playersource, setplayersource] = useState<VideoSource>('videasy');
   const [mylist, setmylist] = useState<MediaItem[]>([]);
   const [history, sethistory] = useState<WatchHistoryItem[]>([]);
-  const [audiosettings, setaudiosettings] = useState<AudioSettings>({
-    enabled: false,
-    spatial: false,
-    volume: 0.45,
-    width: 0.6,
-    depth: 0.45
-  });
+  const [audiosettings, setaudiosettings] = useState<AudioSettings>({ ...defaultaudio });
   const [audiopanelopen, setaudiopanelopen] = useState<boolean>(false);
   const [detailitem, setdetailitem] = useState<MediaItem | null>(null);
   const [activeplayer, setactiveplayer] = useState<PlayerConfig | null>(null);
@@ -66,53 +85,94 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const audiosettingsref = useRef(audiosettings);
   audiosettingsref.current = audiosettings;
 
+  const toasttimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [hydrated, sethydrated] = useState<boolean>(false);
+
   useEffect(() => {
+    const readjson = (key: string) => {
+      try {
+        const raw = localStorage.getItem(key);
+        return raw ? JSON.parse(raw) : null;
+      } catch (_) {
+        try { localStorage.removeItem(key); } catch (__) {}
+        return null;
+      }
+    };
+
     try {
       const p = localStorage.getItem('vk_player');
       if (p === 'videasy' || p === 'vidking' || p === 'vyla') setplayersource(p);
 
-      const l = localStorage.getItem('vk_mylist');
-      if (l) setmylist(JSON.parse(l));
+      const l = readjson('vk_mylist');
+      if (Array.isArray(l)) setmylist(l.filter(i => i && typeof i.id === 'string'));
 
-      const h = localStorage.getItem('vk_hist');
-      if (h) sethistory(JSON.parse(h));
+      const h = readjson('vk_hist');
+      if (Array.isArray(h)) sethistory(h.filter(i => i && typeof i.id === 'string'));
 
-      const a = localStorage.getItem('vk_audio');
-      if (a) setaudiosettings(JSON.parse(a));
-    } catch (_) {}
+      const a = readjson('vk_audio');
+      if (a && typeof a === 'object') setaudiosettings(prev => sanitizeaudio({ ...prev, ...a }));
+    } catch (_) {
+    } finally {
+      sethydrated(true);
+    }
 
     setupaudiopanning(() => audiosettingsref.current);
+
+    return () => {
+      if (toasttimer.current) clearTimeout(toasttimer.current);
+    };
   }, []);
 
   useEffect(() => {
+    if (!hydrated) return;
     try {
       localStorage.setItem('vk_player', playersource);
     } catch (_) {}
-  }, [playersource]);
+  }, [hydrated, playersource]);
 
   useEffect(() => {
+    if (!hydrated) return;
     try {
       localStorage.setItem('vk_mylist', JSON.stringify(mylist));
     } catch (_) {}
-  }, [mylist]);
+  }, [hydrated, mylist]);
 
   useEffect(() => {
+    if (!hydrated) return;
     try {
       localStorage.setItem('vk_hist', JSON.stringify(history));
     } catch (_) {}
-  }, [history]);
+  }, [hydrated, history]);
 
   useEffect(() => {
+    if (!hydrated) return;
     try {
       localStorage.setItem('vk_audio', JSON.stringify(audiosettings));
     } catch (_) {}
     updateambienthum(audiosettings);
-  }, [audiosettings]);
+  }, [hydrated, audiosettings]);
+
+  useEffect(() => {
+    const locked = Boolean(detailitem || activeplayer || syncmodalopen || audiopanelopen);
+    if (!locked) return;
+    const body = document.body;
+    const prevoverflow = body.style.overflow;
+    const prevpad = body.style.paddingRight;
+    const gap = window.innerWidth - document.documentElement.clientWidth;
+    body.style.overflow = 'hidden';
+    if (gap > 0) body.style.paddingRight = `${gap}px`;
+    return () => {
+      body.style.overflow = prevoverflow;
+      body.style.paddingRight = prevpad;
+    };
+  }, [detailitem, activeplayer, syncmodalopen, audiopanelopen]);
 
   const showtoast = (msg: string) => {
+    if (toasttimer.current) clearTimeout(toasttimer.current);
     setToastmsg(msg);
-    setTimeout(() => {
+    toasttimer.current = setTimeout(() => {
       setToastmsg(null);
+      toasttimer.current = null;
     }, 3000);
   };
 
@@ -194,10 +254,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   };
 
   const restoresyncdata = (data: SyncState) => {
-    if (data.mylist) setmylist(data.mylist);
-    if (data.history) sethistory(data.history);
-    if (data.audiosettings) setaudiosettings(data.audiosettings);
-    if (data.playersource) setplayersource(data.playersource);
+    if (!data || typeof data !== 'object') return;
+    if (Array.isArray(data.mylist)) setmylist(data.mylist.filter(i => i && typeof i.id === 'string'));
+    if (Array.isArray(data.history)) sethistory(data.history.filter(i => i && typeof i.id === 'string'));
+    if (data.audiosettings) setaudiosettings(sanitizeaudio(data.audiosettings));
+    if (data.playersource === 'videasy' || data.playersource === 'vidking' || data.playersource === 'vyla') {
+      setplayersource(data.playersource);
+    }
     showtoast('Đồng bộ dữ liệu thành công!');
   };
 
@@ -241,7 +304,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }}
     >
       {children}
-      {toastmsg && <div className="account-toast active">{toastmsg}</div>}
+      {toastmsg && <div className="account-toast show" role="status" aria-live="polite">{toastmsg}</div>}
     </AppContext.Provider>
   );
 }

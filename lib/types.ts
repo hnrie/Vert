@@ -59,6 +59,13 @@ export interface PlayerConfig {
   episode?: number | null;
 }
 
+export interface RowEntry {
+  item: MediaItem;
+  progress?: number;
+  season?: number | null;
+  episode?: number | null;
+}
+
 export interface CastMember {
   id: number;
   name: string;

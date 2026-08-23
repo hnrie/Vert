@@ -13,7 +13,10 @@ export default function SyncModal() {
     audiosettings,
     playersource,
     restoresyncdata,
-    showtoast
+    showtoast,
+    detailitem,
+    activeplayer,
+    audiopanelopen
   } = useapp();
 
   const [activeTab, setActiveTab] = useState<'export' | 'import'>('export');
@@ -24,22 +27,58 @@ export default function SyncModal() {
   const [importstatus, setImportstatus] = useState<string>('');
   const [isloading, setIsloading] = useState<boolean>(false);
 
-  const timerref = useRef<any>(null);
+  const timerref = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const expiring = useRef<boolean>(false);
+  const openref = useRef<boolean>(syncmodalopen);
+  openref.current = syncmodalopen;
+  const closetimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
-    if (timeremaining > 0) {
-      timerref.current = setTimeout(() => {
-        setTimeremaining(prev => prev - 1);
-      }, 1000);
-    } else if (timeremaining === 0 && pin !== '------') {
-      setPin('------');
-      setExportstatus('Mã PIN đã hết hạn');
-    }
+    return () => {
+      if (closetimer.current) clearTimeout(closetimer.current);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (timeremaining <= 0) return;
+    timerref.current = setTimeout(() => {
+      setTimeremaining(prev => Math.max(0, prev - 1));
+    }, 1000);
 
     return () => {
       if (timerref.current) clearTimeout(timerref.current);
     };
-  }, [timeremaining, pin]);
+  }, [timeremaining]);
+
+  useEffect(() => {
+    if (!expiring.current || timeremaining > 0) return;
+    expiring.current = false;
+    setPin('------');
+    setExportstatus('Mã PIN đã hết hạn');
+  }, [timeremaining]);
+
+  useEffect(() => {
+    if (!syncmodalopen || detailitem || activeplayer || audiopanelopen) return;
+    const onkey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.stopImmediatePropagation();
+        setsyncmodalopen(false);
+      }
+    };
+    window.addEventListener('keydown', onkey, true);
+    return () => window.removeEventListener('keydown', onkey, true);
+  }, [syncmodalopen, detailitem, activeplayer, audiopanelopen, setsyncmodalopen]);
+
+  useEffect(() => {
+    if (syncmodalopen) return;
+    expiring.current = false;
+    setPin('------');
+    setTimeremaining(0);
+    setExportstatus('');
+    setImportcode('');
+    setImportstatus('');
+    setActiveTab('export');
+  }, [syncmodalopen]);
 
   if (!syncmodalopen) return null;
 
@@ -61,7 +100,10 @@ export default function SyncModal() {
       });
 
       const data = await res.json();
+      if (!openref.current) return;
+
       if (res.ok && data.pin) {
+        expiring.current = true;
         setPin(data.pin);
         setTimeremaining(600);
         setExportstatus('Mã PIN có hiệu lực trong 10 phút');
@@ -69,16 +111,19 @@ export default function SyncModal() {
         setExportstatus(data.error || 'Lỗi khi tạo mã PIN');
       }
     } catch (_) {
-      setExportstatus('Không thể kết nối đến máy chủ đồng bộ');
+      if (openref.current) setExportstatus('Không thể kết nối đến máy chủ đồng bộ');
     } finally {
       setIsloading(false);
     }
   };
 
-  const copyPin = () => {
-    if (pin && pin !== '------') {
-      navigator.clipboard.writeText(pin);
+  const copyPin = async () => {
+    if (!pin || pin === '------') return;
+    try {
+      await navigator.clipboard.writeText(pin);
       showtoast('Đã sao chép mã PIN vào bộ nhớ tạm');
+    } catch (_) {
+      showtoast('Không thể sao chép, hãy chép mã thủ công');
     }
   };
 
@@ -92,21 +137,30 @@ export default function SyncModal() {
     setImportstatus('');
 
     try {
-      const res = await fetch(`/api/sync?code=${importcode}`);
+      const res = await fetch(`/api/sync?code=${encodeURIComponent(importcode)}`);
       const result = await res.json();
+      if (!openref.current) return;
 
-      if (res.ok && result.data) {
-        const parsed: SyncState = JSON.parse(result.data);
-        restoresyncdata(parsed);
-        setImportstatus('Đồng bộ dữ liệu thành công!');
-        setTimeout(() => {
-          setsyncmodalopen(false);
-        }, 1500);
-      } else {
+      if (!res.ok || !result.data) {
         setImportstatus(result.error || 'Mã PIN không đúng hoặc đã hết hạn');
+        return;
       }
+
+      let parsed: SyncState;
+      try {
+        parsed = JSON.parse(result.data);
+      } catch (_) {
+        setImportstatus('Dữ liệu đồng bộ bị hỏng');
+        return;
+      }
+
+      restoresyncdata(parsed);
+      setImportstatus('Đồng bộ dữ liệu thành công!');
+      closetimer.current = setTimeout(() => {
+        setsyncmodalopen(false);
+      }, 1500);
     } catch (_) {
-      setImportstatus('Không thể kết nối đến máy chủ đồng bộ');
+      if (openref.current) setImportstatus('Không thể kết nối đến máy chủ đồng bộ');
     } finally {
       setIsloading(false);
     }
@@ -119,8 +173,8 @@ export default function SyncModal() {
   };
 
   return (
-    <div className="sync-overlay active" id="sync-overlay">
-      <div className="sync-modal">
+    <div className="sync-overlay active" id="sync-overlay" onClick={() => setsyncmodalopen(false)}>
+      <div className="sync-modal" onClick={e => e.stopPropagation()}>
         <button
           className="sync-close"
           id="sync-close"
@@ -165,11 +219,17 @@ export default function SyncModal() {
         {activeTab === 'export' && (
           <div className="sync-panel" id="sync-export-panel">
             <div
-              className="sync-pin-display"
+              className={`sync-pin-display ${pin !== '------' ? 'active' : ''}`}
               id="sync-pin-display"
               tabIndex={0}
               role="button"
               onClick={copyPin}
+              onKeyDown={e => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  copyPin();
+                }
+              }}
               title="Nhấn để sao chép"
             >
               {pin}

@@ -8,14 +8,18 @@ interface MediaCardProps {
   item: MediaItem;
   badge?: string;
   progress?: number;
+  season?: number | null;
+  episode?: number | null;
 }
 
-export default function MediaCard({ item, badge, progress }: MediaCardProps) {
+export default function MediaCard({ item, badge, progress, season, episode }: MediaCardProps) {
   const { opendetail, playcontent, togglemylist, isinmylist } = useapp();
   const inlist = isinmylist(item.id);
 
-  const matchscore = item.rating ? `${Math.round(parseFloat(item.rating) * 10)}%` : '';
+  const rated = item.rating ? parseFloat(item.rating) : NaN;
+  const matchscore = Number.isFinite(rated) ? `${Math.round(rated * 10)}%` : '';
   const hasposter = Boolean(item.poster);
+  const play = () => playcontent(item, season ?? null, episode ?? null);
 
   return (
     <div
@@ -55,7 +59,7 @@ export default function MediaCard({ item, badge, progress }: MediaCardProps) {
             aria-label="Phát"
             onClick={e => {
               e.stopPropagation();
-              playcontent(item);
+              play();
             }}
           >
             <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">

@@ -6,8 +6,8 @@ let humgain: GainNode | null = null;
 let humpan: StereoPannerNode | null = null;
 let pointerinstalled = false;
 
-function getactx() {
-  if (!actx && typeof window !== 'undefined') {
+function getactx(create: boolean = true) {
+  if (!actx && create && typeof window !== 'undefined') {
     const Ctx = window.AudioContext || (window as any).webkitAudioContext;
     if (Ctx) actx = new Ctx();
   }
@@ -17,13 +17,30 @@ function getactx() {
   return actx;
 }
 
-export function playuisound(kind: 'click' | 'hover' | 'open' | 'close' | 'toggle' | 'move', settings?: AudioSettings, pan: number = 0) {
+type SoundKind = 'click' | 'hover' | 'open' | 'close' | 'toggle' | 'move';
+
+const soundspec: Record<SoundKind, { wave: OscillatorType; from: number; to: number; gain: number; dur: number }> = {
+  click: { wave: 'sine', from: 800, to: 200, gain: 0.4, dur: 0.05 },
+  hover: { wave: 'sine', from: 440, to: 300, gain: 0.15, dur: 0.03 },
+  move: { wave: 'sine', from: 440, to: 300, gain: 0.15, dur: 0.03 },
+  open: { wave: 'triangle', from: 300, to: 880, gain: 0.3, dur: 0.12 },
+  close: { wave: 'triangle', from: 880, to: 220, gain: 0.3, dur: 0.12 },
+  toggle: { wave: 'sine', from: 520, to: 680, gain: 0.25, dur: 0.06 }
+};
+
+export function playuisound(kind: SoundKind, settings?: AudioSettings, pan: number = 0) {
   if (!settings || !settings.enabled) return;
+  const spec = soundspec[kind];
+  if (!spec) return;
+
+  const vol = Math.max(0, Math.min(1, settings.volume));
+  const peak = vol * spec.gain;
+  if (peak <= 0.001) return;
+
   const ctx = getactx();
   if (!ctx) return;
 
   const now = ctx.currentTime;
-  const vol = Math.max(0, Math.min(1, settings.volume));
   const span = settings.spatial ? Math.max(-1, Math.min(1, pan)) : 0;
 
   const osc = ctx.createOscillator();
@@ -41,57 +58,35 @@ export function playuisound(kind: 'click' | 'hover' | 'open' | 'close' | 'toggle
     gain.connect(ctx.destination);
   }
 
-  if (kind === 'click') {
-    osc.type = 'sine';
-    osc.frequency.setValueAtTime(800, now);
-    osc.frequency.exponentialRampToValueAtTime(200, now + 0.05);
-    gain.gain.setValueAtTime(vol * 0.4, now);
-    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.05);
-    osc.start(now);
-    osc.stop(now + 0.05);
-  } else if (kind === 'hover' || kind === 'move') {
-    osc.type = 'sine';
-    osc.frequency.setValueAtTime(440, now);
-    osc.frequency.exponentialRampToValueAtTime(300, now + 0.03);
-    gain.gain.setValueAtTime(vol * 0.15, now);
-    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.03);
-    osc.start(now);
-    osc.stop(now + 0.03);
-  } else if (kind === 'open') {
-    osc.type = 'triangle';
-    osc.frequency.setValueAtTime(300, now);
-    osc.frequency.exponentialRampToValueAtTime(880, now + 0.12);
-    gain.gain.setValueAtTime(vol * 0.3, now);
-    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.12);
-    osc.start(now);
-    osc.stop(now + 0.12);
-  } else if (kind === 'close') {
-    osc.type = 'triangle';
-    osc.frequency.setValueAtTime(880, now);
-    osc.frequency.exponentialRampToValueAtTime(220, now + 0.12);
-    gain.gain.setValueAtTime(vol * 0.3, now);
-    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.12);
-    osc.start(now);
-    osc.stop(now + 0.12);
-  } else if (kind === 'toggle') {
-    osc.type = 'sine';
-    osc.frequency.setValueAtTime(520, now);
-    osc.frequency.exponentialRampToValueAtTime(680, now + 0.06);
-    gain.gain.setValueAtTime(vol * 0.25, now);
-    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.06);
-    osc.start(now);
-    osc.stop(now + 0.06);
-  }
+  osc.type = spec.wave;
+  osc.frequency.setValueAtTime(spec.from, now);
+  osc.frequency.exponentialRampToValueAtTime(spec.to, now + spec.dur);
+  gain.gain.setValueAtTime(peak, now);
+  gain.gain.exponentialRampToValueAtTime(0.001, now + spec.dur);
+
+  osc.onended = () => {
+    osc.disconnect();
+    gain.disconnect();
+    if (panner) panner.disconnect();
+  };
+
+  osc.start(now);
+  osc.stop(now + spec.dur);
 }
 
 export function updateambienthum(settings: AudioSettings) {
   if (typeof window === 'undefined') return;
-  const ctx = getactx();
+  const ctx = getactx(settings.enabled);
   if (!ctx) return;
   const now = ctx.currentTime;
   const targetvol = settings.enabled ? settings.volume * 0.05 : 0;
 
-  if (settings.enabled && !humosc) {
+  if (!settings.enabled) {
+    if (humgain) humgain.gain.setTargetAtTime(0, now, 0.1);
+    return;
+  }
+
+  if (!humosc) {
     humosc = ctx.createOscillator();
     humgain = ctx.createGain();
     humosc.type = 'sine';
@@ -107,16 +102,16 @@ export function updateambienthum(settings: AudioSettings) {
       humgain.connect(ctx.destination);
     }
 
-    humgain.gain.setValueAtTime(targetvol, now);
+    humgain.gain.setValueAtTime(0, now);
     humosc.start(now);
-  } else if (humgain) {
-    humgain.gain.setTargetAtTime(targetvol, now, 0.1);
   }
+
+  if (humgain) humgain.gain.setTargetAtTime(targetvol, now, 0.1);
 }
 
 export function updatehumpan(pan: number) {
   if (humpan && humpan.pan) {
-    const act = getactx();
+    const act = getactx(false);
     if (act) humpan.pan.setTargetAtTime(Math.max(-1, Math.min(1, pan)), act.currentTime, 0.05);
   }
 }
