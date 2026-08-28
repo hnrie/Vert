@@ -32,10 +32,12 @@ export default function Navbar() {
   const [showaccount, setShowaccount] = useState<boolean>(false);
   const [showfilter, setShowfilter] = useState<boolean>(false);
   const [showmobilemenu, setShowmobilemenu] = useState<boolean>(false);
+  const [searchopen, setSearchopen] = useState<boolean>(false);
 
   const suggesttimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const suggestctrl = useRef<AbortController | null>(null);
   const navref = useRef<HTMLDivElement>(null);
+  const searchinputref = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     const handleScroll = () => {
@@ -60,6 +62,7 @@ export default function Navbar() {
         setShowfilter(false);
         setShowsuggest(false);
         setShowmobilemenu(false);
+        if (!searchinput.trim()) setSearchopen(false);
       }
     };
     document.addEventListener('click', handleClickOutside);
@@ -202,8 +205,22 @@ export default function Navbar() {
         </div>
 
         <div className="nav-right">
-          <form className="search-wrapper" id="search-wrapper" onSubmit={handleSearchSubmit}>
-            <button type="submit" className="search-btn" id="search-btn" title="Tìm kiếm">
+          <form className={`search-wrapper ${searchopen ? 'open' : ''}`} id="search-wrapper" onSubmit={handleSearchSubmit}>
+            <button
+              type="button"
+              className="search-btn"
+              id="search-btn"
+              title="Tìm kiếm"
+              onClick={() => {
+                setSearchopen(prev => {
+                  const next = !prev;
+                  if (next) {
+                    requestAnimationFrame(() => searchinputref.current?.focus());
+                  }
+                  return next;
+                });
+              }}
+            >
               <svg
                 width="18"
                 height="18"
@@ -220,6 +237,7 @@ export default function Navbar() {
             <input
               type="text"
               id="search-input"
+              ref={searchinputref}
               placeholder="Tên phim, diễn viên, thể loại"
               value={searchinput}
               onChange={e => handleSearchInput(e.target.value)}
