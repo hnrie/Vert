@@ -1,5 +1,7 @@
 node_modules
 .next
+www
+android
 .agents
 
 # Rust / Tauri build artifacts
@@ -16,3 +18,5 @@ tsconfig.tsbuildinfo
 .DS_Store
 Thumbs.db
 .env*
+playwright-report
+test-results

@@ -1,8 +1,9 @@
 'use client';
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { MediaItem } from '../../lib/types';
 import Hls from 'hls.js';
+import { errormessage, isaborterror, isrecord, togglefullscreen } from '../../lib/utils';
 
 interface VylaPlayerProps {
   item: MediaItem;
@@ -21,6 +22,25 @@ interface SubItem {
   file: string;
 }
 
+function isMp4(u: string) {
+  try {
+    const inner = new URL(u).searchParams.get('url') || u;
+    return /\.(mp4|mkv)(\?|$)/i.test(inner);
+  } catch {
+    return /\.(mp4|mkv)(\?|$)/i.test(u);
+  }
+}
+
+function fmttime(s: number) {
+  if (!s || isNaN(s)) return '0:00';
+  const m = Math.floor(s / 60);
+  const sec = Math.floor(s % 60);
+  const h = Math.floor(m / 60);
+  return h > 0
+    ? `${h}:${String(m % 60).padStart(2, '0')}:${String(sec).padStart(2, '0')}`
+    : `${m}:${String(sec).padStart(2, '0')}`;
+}
+
 export default function VylaPlayer({ item, season, episode }: VylaPlayerProps) {
   const playerwrapRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -32,6 +52,8 @@ export default function VylaPlayer({ item, season, episode }: VylaPlayerProps) {
   const activeUrlRef = useRef<string | null>(null);
   const disposedRef = useRef<boolean>(false);
   const lastreportRef = useRef<number>(0);
+  const switchsourceRef = useRef<((url: string, label?: string) => void) | null>(null);
+  const trynextsourceRef = useRef<((failedurl?: string) => void) | null>(null);
 
   const [title, setTitle] = useState<string>('');
   const [sources, setSources] = useState<SourceItem[]>([]);
@@ -50,58 +72,39 @@ export default function VylaPlayer({ item, season, episode }: VylaPlayerProps) {
   const [error, setError] = useState<string | null>(null);
   const [showcontrols, setShowcontrols] = useState<boolean>(false);
 
-  const isMp4 = (u: string) => {
-    try {
-      const inner = new URL(u).searchParams.get('url') || u;
-      return /\.(mp4|mkv)(\?|$)/i.test(inner);
-    } catch {
-      return /\.(mp4|mkv)(\?|$)/i.test(u);
-    }
-  };
-
-  const fmttime = (s: number) => {
-    if (!s || isNaN(s)) return '0:00';
-    const m = Math.floor(s / 60);
-    const sec = Math.floor(s % 60);
-    const h = Math.floor(m / 60);
-    return h > 0
-      ? `${h}:${String(m % 60).padStart(2, '0')}:${String(sec).padStart(2, '0')}`
-      : `${m}:${String(sec).padStart(2, '0')}`;
-  };
-
-  const gettoken = async () => {
+  const gettoken = useCallback(async (): Promise<string> => {
     if (tokenRef.current) return tokenRef.current;
     setLoadlabel('Đang xác thực...');
     const r = await fetch('/api/vyla-auth', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
     if (!r.ok) throw new Error('Xác thực thất bại');
-    const data = await r.json();
-    const tok = String(data?.token || '');
+    const data: unknown = await r.json();
+    const tok = isrecord(data) && typeof data.token === 'string' ? data.token : '';
     if (!tok) throw new Error('Xác thực thất bại');
     tokenRef.current = tok;
     return tok;
-  };
+  }, []);
 
-  const cleartimer = () => {
+  const cleartimer = useCallback(() => {
     if (manifestTimerRef.current) {
       clearTimeout(manifestTimerRef.current);
       manifestTimerRef.current = null;
     }
-  };
+  }, []);
 
-  const trynextsource = (failedurl?: string) => {
+  const trynextsource = useCallback((failedurl?: string) => {
     cleartimer();
     if (disposedRef.current) return;
     if (failedurl) triedSourcesRef.current.add(failedurl);
     const next = sourcesRef.current.find(s => !triedSourcesRef.current.has(s.url));
     if (next) {
-      switchsource(next.url, next.label || next.source);
+      switchsourceRef.current?.(next.url, next.label || next.source);
     } else {
       setError('Tất cả nguồn đều thất bại.');
       setIsloading(false);
     }
-  };
+  }, [cleartimer]);
 
-  const switchsource = (url: string, label?: string) => {
+  const switchsource = useCallback((url: string, label?: string) => {
     if (disposedRef.current) return;
 
     triedSourcesRef.current.add(url);
@@ -127,7 +130,7 @@ export default function VylaPlayer({ item, season, episode }: VylaPlayerProps) {
     const stale = () => disposedRef.current || activeUrlRef.current !== url;
 
     manifestTimerRef.current = setTimeout(() => {
-      if (!stale()) trynextsource(url);
+      if (!stale()) trynextsourceRef.current?.(url);
     }, 15000);
 
     if (isMp4(url)) {
@@ -139,7 +142,7 @@ export default function VylaPlayer({ item, season, episode }: VylaPlayerProps) {
       }, { once: true });
       vid.addEventListener('error', () => {
         cleartimer();
-        if (!stale()) trynextsource(url);
+        if (!stale()) trynextsourceRef.current?.(url);
       }, { once: true });
       vid.play().catch(() => {});
       return;
@@ -158,7 +161,7 @@ export default function VylaPlayer({ item, season, episode }: VylaPlayerProps) {
         levelLoadingMaxRetry: 4,
         xhrSetup: (xhr, requrl) => {
           if (requrl && requrl.includes('api.vyla.cc') && tokenRef.current) {
-            try { xhr.setRequestHeader('X-Session-Token', tokenRef.current); } catch (_) {}
+            try { xhr.setRequestHeader('X-Session-Token', tokenRef.current); } catch {}
           }
         }
       });
@@ -193,7 +196,7 @@ export default function VylaPlayer({ item, season, episode }: VylaPlayerProps) {
           else hls.recoverMediaError();
           return;
         }
-        trynextsource(url);
+        trynextsourceRef.current?.(url);
       });
       return;
     }
@@ -212,7 +215,10 @@ export default function VylaPlayer({ item, season, episode }: VylaPlayerProps) {
     cleartimer();
     setError('Trình duyệt không hỗ trợ HLS.');
     setIsloading(false);
-  };
+  }, [cleartimer]);
+
+  switchsourceRef.current = switchsource;
+  trynextsourceRef.current = trynextsource;
 
   useEffect(() => {
     disposedRef.current = false;
@@ -243,7 +249,7 @@ export default function VylaPlayer({ item, season, episode }: VylaPlayerProps) {
         const tok = await gettoken();
         if (disposedRef.current) return;
 
-        const apiurl = season && episode
+        const apiurl = season !== undefined && season !== null && episode !== undefined && episode !== null
           ? `https://api.vyla.cc/tv?id=${item.id}&season=${season}&episode=${episode}`
           : `https://api.vyla.cc/movie?id=${item.id}`;
 
@@ -270,21 +276,39 @@ export default function VylaPlayer({ item, season, episode }: VylaPlayerProps) {
 
           for (const line of lines) {
             if (!line.startsWith('data: ')) continue;
-            let event: any;
+            let event: unknown;
             try {
               event = JSON.parse(line.slice(6));
-            } catch (_) {
+            } catch {
               continue;
             }
-            if (disposedRef.current) return;
+            if (disposedRef.current || !isrecord(event)) return;
 
             if (event.type === 'meta') {
-              const t = event.meta?.title || event.meta?.name || item.title;
-              setTitle(t + (season ? ` S${season}E${episode || 1}` : ''));
-              if (Array.isArray(event.subtitles)) setSubtitles(event.subtitles.filter((s: any) => s && s.file));
+              const meta = isrecord(event.meta) ? event.meta : {};
+              const t = typeof meta.title === 'string'
+                ? meta.title
+                : typeof meta.name === 'string'
+                  ? meta.name
+                  : item.title;
+              setTitle(t + (season !== undefined && season !== null ? ` S${season}E${episode ?? 1}` : ''));
+              if (Array.isArray(event.subtitles)) {
+                const parsed = event.subtitles
+                  .filter(isrecord)
+                  .filter(subtitle => typeof subtitle.file === 'string')
+                  .map(subtitle => ({
+                    label: typeof subtitle.label === 'string' ? subtitle.label : '',
+                    file: subtitle.file as string
+                  }));
+                setSubtitles(parsed);
+              }
             }
-            if (event.type === 'source' && event.source?.url) {
-              const src: SourceItem = event.source;
+            if (event.type === 'source' && isrecord(event.source) && typeof event.source.url === 'string') {
+              const src: SourceItem = {
+                url: event.source.url,
+                label: typeof event.source.label === 'string' ? event.source.label : undefined,
+                source: typeof event.source.source === 'string' ? event.source.source : undefined
+              };
               if (sourcesRef.current.some(s => s.url === src.url)) continue;
               sourcesRef.current = [...sourcesRef.current, src];
               setSources(sourcesRef.current);
@@ -299,9 +323,9 @@ export default function VylaPlayer({ item, season, episode }: VylaPlayerProps) {
             }
           }
         }
-      } catch (e: any) {
-        if (!disposedRef.current && e?.name !== 'AbortError') {
-          setError(e.message || 'Lỗi kết nối.');
+      } catch (error) {
+        if (!disposedRef.current && !isaborterror(error)) {
+          setError(errormessage(error, 'Lỗi kết nối.'));
           setIsloading(false);
         }
       }
@@ -318,21 +342,21 @@ export default function VylaPlayer({ item, season, episode }: VylaPlayerProps) {
         hlsRef.current = null;
       }
     };
-  }, [item.id, season, episode]);
+  }, [cleartimer, episode, gettoken, item.id, item.title, season, switchsource]);
 
-  const toggleplay = () => {
+  const toggleplay = useCallback(() => {
     const vid = videoRef.current;
     if (!vid) return;
     if (vid.paused) vid.play().catch(() => {});
     else vid.pause();
-  };
+  }, []);
 
-  const togglemute = () => {
+  const togglemute = useCallback(() => {
     const vid = videoRef.current;
     if (!vid) return;
     vid.muted = !vid.muted;
     setIsmuted(vid.muted);
-  };
+  }, []);
 
   const handlevolume = (val: number) => {
     setVolume(val);
@@ -359,17 +383,9 @@ export default function VylaPlayer({ item, season, episode }: VylaPlayerProps) {
     }
   };
 
-  const togglefullscreen = () => {
-    const el = playerwrapRef.current;
-    if (!el) return;
-    if (document.fullscreenElement || (document as any).webkitFullscreenElement) {
-      if (document.exitFullscreen) document.exitFullscreen();
-      else if ((document as any).webkitExitFullscreen) (document as any).webkitExitFullscreen();
-    } else {
-      if (el.requestFullscreen) el.requestFullscreen();
-      else if ((el as any).webkitRequestFullscreen) (el as any).webkitRequestFullscreen();
-    }
-  };
+  const toggleplayerfullscreen = useCallback(() => {
+    togglefullscreen(playerwrapRef.current);
+  }, []);
 
   const selectsub = (idx: number) => {
     const next = activesub === idx ? -1 : idx;
@@ -399,14 +415,14 @@ export default function VylaPlayer({ item, season, episode }: VylaPlayerProps) {
         e.preventDefault();
         vid.currentTime = Math.min(vid.duration || vid.currentTime, vid.currentTime + 10);
       } else if (e.key === 'f') {
-        togglefullscreen();
+        toggleplayerfullscreen();
       } else if (e.key === 'm') {
         togglemute();
       }
     };
     window.addEventListener('keydown', handleKey);
     return () => window.removeEventListener('keydown', handleKey);
-  }, []);
+  }, [toggleplay, togglemute, toggleplayerfullscreen]);
 
   const progresspct = duration ? (curtime / duration) * 100 : 0;
 
@@ -502,7 +518,7 @@ export default function VylaPlayer({ item, season, episode }: VylaPlayerProps) {
           </select>
         )}
 
-        <button id="fs-btn" className="ctrl-btn" onClick={e => { e.stopPropagation(); togglefullscreen(); }} title="Toàn màn hình" style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer' }}>
+        <button id="fs-btn" className="ctrl-btn" onClick={e => { e.stopPropagation(); toggleplayerfullscreen(); }} title="Toàn màn hình" style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer' }}>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="22" height="22">
             <path d="M8 3H5a2 2 0 0 0-2 2v3" />
             <path d="M21 8V5a2 2 0 0 0-2-2h-3" />

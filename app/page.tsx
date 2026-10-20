@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { AppProvider, useapp } from '../context/appcontext';
+import { AppProvider, useApp } from '../context/appcontext';
 import Titlebar from '../components/titlebar';
 import Navbar from '../components/navbar';
 import HeroBanner from '../components/herobanner';
@@ -15,7 +15,7 @@ import AudioPanel from '../components/player/audiopanel';
 import { MediaItem } from '../lib/types';
 
 function MainAppContent() {
-  const { currentpage, mylist, history, setcurrentpage } = useapp();
+  const { currentpage, mylist, history, setcurrentpage } = useApp();
 
   React.useEffect(() => {
     const el = document.getElementById('loader-screen');
@@ -60,7 +60,7 @@ function MainAppContent() {
               {mylist.length > 0 ? (
                 <div className="card-grid" id="mylist-grid">
                   {mylist.map(item => (
-                    <MediaCard key={item.id} item={item} />
+                    <MediaCard key={`${item.type}-${item.id}`} item={item} />
                   ))}
                 </div>
               ) : (

@@ -1,13 +1,26 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import { useapp } from '../context/appcontext';
-import { fetchtmdb, norm, genrenames } from '../lib/tmdb';
+import { useApp } from '../context/appcontext';
+import { fetchtmdb, genrenames, normlist, TmdbListResponse } from '../lib/tmdb';
 import MediaCard from './mediacard';
 import { MediaItem, Episode, CastMember } from '../lib/types';
+import { isaborterror } from '../lib/utils';
+
+interface CreditsResponse {
+  cast?: CastMember[];
+}
+
+interface TvResponse {
+  number_of_seasons?: number;
+}
+
+interface EpisodesResponse {
+  episodes?: Episode[];
+}
 
 export default function DetailModal() {
-  const { detailitem, closedetail, playcontent, togglemylist, isinmylist, activeplayer, audiopanelopen } = useapp();
+  const { detailitem, closedetail, playcontent, togglemylist, isinmylist, activeplayer, audiopanelopen } = useApp();
 
   const [cast, setCast] = useState<CastMember[]>([]);
   const [seasons, setSeasons] = useState<number[]>([]);
@@ -33,17 +46,16 @@ export default function DetailModal() {
     let ismounted = true;
 
     const loadDetails = async () => {
-      const creditsres = await fetchtmdb(`/${mediatype}/${itemid}/credits`, {}, ctrl.signal).catch(() => null);
+      const creditsres = await fetchtmdb<CreditsResponse>(`/${mediatype}/${itemid}/credits`, {}, ctrl.signal).catch(() => null);
       if (ismounted && creditsres) setCast((creditsres.cast || []).slice(0, 5));
 
-      const similarres = await fetchtmdb(`/${mediatype}/${itemid}/similar`, {}, ctrl.signal).catch(() => null);
+      const similarres = await fetchtmdb<TmdbListResponse>(`/${mediatype}/${itemid}/similar`, {}, ctrl.signal).catch(() => null);
       if (ismounted && similarres) {
-        const simnorm = (similarres.results || []).map((i: any) => norm(i, mediatype)).filter(Boolean) as MediaItem[];
-        setSimilar(simnorm.slice(0, 6));
+        setSimilar(normlist(similarres.results, mediatype).slice(0, 6));
       }
 
       if (mediatype === 'tv') {
-        const tvres = await fetchtmdb(`/tv/${itemid}`, {}, ctrl.signal).catch(() => null);
+        const tvres = await fetchtmdb<TvResponse>(`/tv/${itemid}`, {}, ctrl.signal).catch(() => null);
         if (ismounted) {
           const count = Math.max(1, Number(tvres?.number_of_seasons) || 1);
           setSeasons(Array.from({ length: count }, (_, i) => i + 1));
@@ -66,10 +78,10 @@ export default function DetailModal() {
 
     const loadEpisodes = async () => {
       try {
-        const epres = await fetchtmdb(`/tv/${itemid}/season/${selectedseason}`, {}, ctrl.signal);
+        const epres = await fetchtmdb<EpisodesResponse>(`/tv/${itemid}/season/${selectedseason}`, {}, ctrl.signal);
         if (ismounted) setEpisodes(epres.episodes || []);
-      } catch (e: any) {
-        if (ismounted && e?.name !== 'AbortError') setEpisodes([]);
+      } catch (error) {
+        if (ismounted && !isaborterror(error)) setEpisodes([]);
       }
     };
 
@@ -91,7 +103,7 @@ export default function DetailModal() {
 
   if (!detailitem) return null;
 
-  const inlist = isinmylist(detailitem.id);
+  const inlist = isinmylist(detailitem);
   const rated = detailitem.rating ? parseFloat(detailitem.rating) : NaN;
   const matchscore = Number.isFinite(rated) ? `${Math.round(rated * 10)}% Khớp` : null;
   const genrelist = genrenames(detailitem.genreids);

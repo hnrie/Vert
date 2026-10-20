@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState, useRef } from 'react';
 import MediaCard from './mediacard';
-import { fetchtmdb, norm } from '../lib/tmdb';
+import { fetchtmdb, normlist, TmdbListResponse } from '../lib/tmdb';
 import { MediaItem, RowEntry } from '../lib/types';
 
 interface ContentRowProps {
@@ -22,10 +22,9 @@ export default function ContentRow({ title, fetchEndpoint, entries, isContinueRo
     const ctrl = new AbortController();
     const loadItems = async () => {
       try {
-        const res = await fetchtmdb(fetchEndpoint, {}, ctrl.signal);
-        const raw = res.results || [];
-        setFetched(raw.map((i: any) => norm(i)).filter(Boolean) as MediaItem[]);
-      } catch (_) {}
+        const res = await fetchtmdb<TmdbListResponse>(fetchEndpoint, {}, ctrl.signal);
+        setFetched(normlist(res.results));
+      } catch {}
     };
 
     loadItems();

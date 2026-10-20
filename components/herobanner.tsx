@@ -1,8 +1,8 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import { useapp } from '../context/appcontext';
-import { fetchtmdb, norm } from '../lib/tmdb';
+import { useApp } from '../context/appcontext';
+import { fetchtmdb, normlist, TmdbListResponse } from '../lib/tmdb';
 import { MediaItem } from '../lib/types';
 
 interface HeroBannerProps {
@@ -10,7 +10,7 @@ interface HeroBannerProps {
 }
 
 export default function HeroBanner({ item: propItem }: HeroBannerProps) {
-  const { opendetail, playcontent } = useapp();
+  const { opendetail, playcontent } = useApp();
   const [heroitem, setHeroitem] = useState<MediaItem | null>(propItem || null);
 
   useEffect(() => {
@@ -24,14 +24,14 @@ export default function HeroBanner({ item: propItem }: HeroBannerProps) {
 
     const fetchHero = async () => {
       try {
-        const res = await fetchtmdb('/trending/all/day', {}, ctrl.signal);
-        const valid = (res.results || []).map((i: any) => norm(i)).filter(Boolean) as MediaItem[];
+        const res = await fetchtmdb<TmdbListResponse>('/trending/all/day', {}, ctrl.signal);
+        const valid = normlist(res.results);
         const withart = valid.filter(i => i.backdrop);
         const pool = withart.length > 0 ? withart : valid;
         if (pool.length > 0 && ismounted) {
           setHeroitem(pool[Math.floor(Math.random() * Math.min(5, pool.length))]);
         }
-      } catch (_) {}
+      } catch {}
     };
 
     fetchHero();

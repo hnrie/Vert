@@ -40,7 +40,7 @@ export async function GET(req: NextRequest) {
                 'Access-Control-Allow-Origin': '*'
             }
         });
-    } catch (err) {
+    } catch {
         return NextResponse.json({ error: 'Failed to fetch subtitle' }, { status: 502 });
     }
 }

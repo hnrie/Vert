@@ -42,10 +42,16 @@ fn main() {
             }, true);
         "#;
 
+        let remote_url = option_env!("VERT_APP_URL");
+        let window_url = match remote_url {
+            Some(url) => WindowUrl::External(url.parse()?),
+            None => WindowUrl::App("index.html".into()),
+        };
+
         WindowBuilder::new(
             app,
             "main",
-            WindowUrl::App("index.html".into())
+            window_url
         )
         .title("Vert")
         .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
@@ -53,7 +59,7 @@ fn main() {
         .min_inner_size(800.0, 600.0)
         .resizable(true)
         .fullscreen(false)
-        .decorations(false)
+        .decorations(remote_url.is_none())
         .transparent(false)
         .initialization_script(init_script)
         .build()?;

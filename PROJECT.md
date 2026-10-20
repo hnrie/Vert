@@ -28,17 +28,18 @@
 ## Milestones
 | # | Name | Scope | Dependencies | Status |
 |---|------|-------|-------------|--------|
-| M1 | Next.js Base Setup & Layout | `package.json`, `tsconfig.json`, `app/layout.tsx`, `app/globals.css` | none | IN_PROGRESS |
-| M2 | UI Components & Page Views | `components/` (Navbar, Hero, Rows, Cards, Search, DetailModal, MyList, Titlebar), `app/page.tsx`, state context | M1 | PLANNED |
-| M3 | Video Player & Audio Engine | `components/player/` (VylaHlsPlayer, PlayerOverlay, AudioPanel), sound synth, HLS integration | M1, M2 | PLANNED |
-| M4 | API Proxy Routes & Sync | `app/api/tmdb/route.ts`, `app/api/sync/route.ts`, `app/api/vyla-auth/route.ts`, `app/api/vyla-proxy/route.ts`, `app/api/vyla-sub/route.ts`, sync modal | M1 | PLANNED |
-| M5 | Legacy Cleanup & Build Gate | Delete legacy static files, verify `npm run build` and `npm run dev` pass with 0 errors | M1, M2, M3, M4 | PLANNED |
+| M1 | Next.js Base Setup & Layout | `package.json`, `tsconfig.json`, `app/layout.tsx`, `app/globals.css` | none | COMPLETE |
+| M2 | UI Components & Page Views | `components/` (Navbar, Hero, Rows, Cards, Search, DetailModal, MyList, Titlebar), `app/page.tsx`, state context | M1 | COMPLETE |
+| M3 | Video Player & Audio Engine | `components/player/` (VylaHlsPlayer, PlayerOverlay, AudioPanel), sound synth, HLS integration | M1, M2 | COMPLETE |
+| M4 | API Proxy Routes & Sync | `app/api/tmdb/route.ts`, `app/api/sync/route.ts`, `app/api/vyla-auth/route.ts`, `app/api/vyla-proxy/route.ts`, `app/api/vyla-sub/route.ts`, sync modal | M1 | COMPLETE |
+| M5 | Legacy Cleanup & Build Gate | Delete legacy static files, verify `npm run build` and `npm run dev` pass with 0 errors | M1, M2, M3, M4 | COMPLETE |
 
 ## Interface Contracts
 ### API Route Handlers
-- `GET /api/tmdb?endpoint=<path>&...`: Proxies TMDB requests with server key.
-- `POST /api/sync`: Actions `export` (generates PIN) and `import` (fetches payload by PIN).
-- `GET /api/vyla-auth`: Returns Vyla authentication token.
+- `GET /api/tmdb?ep=<path>&...`: Proxies TMDB requests with server key.
+- `POST /api/sync`: Creates a one-time six-digit PIN and stores the exported payload.
+- `GET /api/sync?code=<pin>`: Consumes the stored payload and deletes its PIN.
+- `POST /api/vyla-auth`: Returns a Vyla authentication token.
 - `GET /api/vyla-proxy?url=<m3u8>`: Rewrites M3U8 HLS playlists with session token and proxy URLs.
 - `GET /api/vyla-sub?url=<vtt>`: Proxies subtitle VTT files with CORS headers.
 

@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Hồ sơ">
+  <rect width="64" height="64" rx="12" fill="#141414"/>
+  <circle cx="32" cy="24" r="12" fill="#d7d7d7"/>
+  <path d="M12 58c1.8-12 9.4-19 20-19s18.2 7 20 19" fill="#d7d7d7"/>
+  <path d="M52 12h4v12h-4z" fill="#e50914"/>
+</svg>

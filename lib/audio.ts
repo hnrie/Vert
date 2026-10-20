@@ -6,9 +6,13 @@ let humgain: GainNode | null = null;
 let humpan: StereoPannerNode | null = null;
 let pointerinstalled = false;
 
-function getactx(create: boolean = true) {
+type Audiowindow = Window & typeof globalThis & {
+  webkitAudioContext?: typeof AudioContext;
+};
+
+function getactx(create: boolean = true): AudioContext | null {
   if (!actx && create && typeof window !== 'undefined') {
-    const Ctx = window.AudioContext || (window as any).webkitAudioContext;
+    const Ctx = window.AudioContext || (window as Audiowindow).webkitAudioContext;
     if (Ctx) actx = new Ctx();
   }
   if (actx && actx.state === 'suspended') {

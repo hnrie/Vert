@@ -53,7 +53,7 @@ export async function GET(req: NextRequest) {
 
     try {
         const tmdbres = await fetch(targeturl.toString());
-        const data = await tmdbres.json();
+        const data: unknown = await tmdbres.json();
 
         return NextResponse.json(data, {
             status: tmdbres.status,
@@ -61,7 +61,7 @@ export async function GET(req: NextRequest) {
                 'Cache-Control': tmdbres.ok ? 's-maxage=600, stale-while-revalidate=3600' : 'no-store'
             }
         });
-    } catch (err) {
+    } catch {
         return NextResponse.json({ error: 'Không thể lấy dữ liệu từ TMDB' }, { status: 502 });
     }
 }

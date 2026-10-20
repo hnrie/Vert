@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
-import { useapp } from '../context/appcontext';
+import { useApp } from '../context/appcontext';
 import { SyncState } from '../lib/types';
 
 export default function SyncModal() {
@@ -17,7 +17,7 @@ export default function SyncModal() {
     detailitem,
     activeplayer,
     audiopanelopen
-  } = useapp();
+  } = useApp();
 
   const [activeTab, setActiveTab] = useState<'export' | 'import'>('export');
   const [pin, setPin] = useState<string>('------');
@@ -110,7 +110,7 @@ export default function SyncModal() {
       } else {
         setExportstatus(data.error || 'Lỗi khi tạo mã PIN');
       }
-    } catch (_) {
+    } catch {
       if (openref.current) setExportstatus('Không thể kết nối đến máy chủ đồng bộ');
     } finally {
       setIsloading(false);
@@ -122,7 +122,7 @@ export default function SyncModal() {
     try {
       await navigator.clipboard.writeText(pin);
       showtoast('Đã sao chép mã PIN vào bộ nhớ tạm');
-    } catch (_) {
+    } catch {
       showtoast('Không thể sao chép, hãy chép mã thủ công');
     }
   };
@@ -146,10 +146,10 @@ export default function SyncModal() {
         return;
       }
 
-      let parsed: SyncState;
+      let parsed: unknown;
       try {
         parsed = JSON.parse(result.data);
-      } catch (_) {
+      } catch {
         setImportstatus('Dữ liệu đồng bộ bị hỏng');
         return;
       }
@@ -159,7 +159,7 @@ export default function SyncModal() {
       closetimer.current = setTimeout(() => {
         setsyncmodalopen(false);
       }, 1500);
-    } catch (_) {
+    } catch {
       if (openref.current) setImportstatus('Không thể kết nối đến máy chủ đồng bộ');
     } finally {
       setIsloading(false);

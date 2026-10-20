@@ -1,9 +1,11 @@
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
-import { useapp } from '../context/appcontext';
-import { fetchtmdb, norm, GENRE_LIST } from '../lib/tmdb';
+import Image from 'next/image';
+import { useApp } from '../context/appcontext';
+import { fetchtmdb, normlist, GENRE_LIST, TmdbListResponse } from '../lib/tmdb';
 import { MediaItem, VideoSource } from '../lib/types';
+import { isaborterror } from '../lib/utils';
 
 export default function Navbar() {
   const {
@@ -16,14 +18,13 @@ export default function Navbar() {
     clearmylist,
     clearcache,
     audiosettings,
-    setaudiosettings,
     setaudiopanelopen,
     opendetail,
     setsearchquery,
     setfiltergenre,
     setsyncmodalopen,
     showtoast
-  } = useapp();
+  } = useApp();
 
   const [issolid, setissolid] = useState<boolean>(false);
   const [searchinput, setSearchinput] = useState<string>('');
@@ -62,7 +63,7 @@ export default function Navbar() {
         setShowfilter(false);
         setShowsuggest(false);
         setShowmobilemenu(false);
-        if (!searchinput.trim()) setSearchopen(false);
+        if (!searchinputref.current?.value.trim()) setSearchopen(false);
       }
     };
     document.addEventListener('click', handleClickOutside);
@@ -84,13 +85,12 @@ export default function Navbar() {
       const ctrl = new AbortController();
       suggestctrl.current = ctrl;
       try {
-        const res = await fetchtmdb('/search/multi', { query: val.trim() }, ctrl.signal);
-        const raw = res.results || [];
-        const items = raw.map((i: any) => norm(i)).filter(Boolean) as MediaItem[];
+        const res = await fetchtmdb<TmdbListResponse>('/search/multi', { query: val.trim() }, ctrl.signal);
+        const items = normlist(res.results);
         setSuggestions(items.slice(0, 6));
         setShowsuggest(items.length > 0);
-      } catch (e: any) {
-        if (e?.name !== 'AbortError') {
+      } catch (error) {
+        if (!isaborterror(error)) {
           setSuggestions([]);
           setShowsuggest(false);
         }
@@ -134,14 +134,6 @@ export default function Navbar() {
     showtoast(`Đã chuyển sang trình phát: ${next === 'videasy' ? 'VidEasy' : next === 'vidking' ? 'VidKing' : 'Vyla'}`);
   };
 
-  const toggleAudio = () => {
-    setaudiosettings(prev => {
-      const n = !prev.enabled;
-      showtoast(n ? 'Đã bật hiệu ứng âm thanh' : 'Đã tắt hiệu ứng âm thanh');
-      return { ...prev, enabled: n };
-    });
-  };
-
   const playerlabel = playersource === 'vidking' ? 'VidKing' : playersource === 'vyla' ? 'Vyla' : 'VidEasy';
 
   return (
@@ -171,6 +163,26 @@ export default function Navbar() {
               }}
             >
               Trang chủ
+            </li>
+            <li
+              className={`nav-link ${currentpage === 'movies' ? 'active' : ''}`}
+              onClick={() => {
+                setsearchquery('');
+                setfiltergenre(null);
+                setcurrentpage('movies');
+              }}
+            >
+              Phim lẻ
+            </li>
+            <li
+              className={`nav-link ${currentpage === 'tv' ? 'active' : ''}`}
+              onClick={() => {
+                setsearchquery('');
+                setfiltergenre(null);
+                setcurrentpage('tv');
+              }}
+            >
+              Phim bộ
             </li>
             <li className="nav-link-dropdown" id="filter-wrapper">
               <span
@@ -280,7 +292,14 @@ export default function Navbar() {
                     }}
                   >
                     {s.poster ? (
-                      <img src={s.poster} alt={s.title} className="suggest-poster" loading="lazy" />
+                      <Image
+                        src={s.poster}
+                        alt={s.title}
+                        className="suggest-poster"
+                        width={36}
+                        height={54}
+                        sizes="36px"
+                      />
                     ) : (
                       <div className="suggest-poster suggest-poster-empty" aria-hidden="true">VERT</div>
                     )}
@@ -310,9 +329,11 @@ export default function Navbar() {
             id="nav-avatar"
             onClick={() => setShowaccount(!showaccount)}
           >
-            <img
-              src="https://upload.wikimedia.org/wikipedia/commons/0/0b/Netflix-avatar.png"
+            <Image
+              src="/avatar.svg"
               alt="Hồ sơ"
+              width={32}
+              height={32}
             />
             <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" className="avatar-caret">
               <path d="M7 10l5 5 5-5z" />
@@ -321,9 +342,11 @@ export default function Navbar() {
             {showaccount && (
               <div className="account-dropdown open" id="account-dropdown" onClick={e => e.stopPropagation()}>
                 <div className="account-header">
-                  <img
-                    src="https://upload.wikimedia.org/wikipedia/commons/0/0b/Netflix-avatar.png"
+                  <Image
+                    src="/avatar.svg"
                     alt="Hồ sơ"
+                    width={40}
+                    height={40}
                   />
                   <div className="account-info">
                     <span className="account-name">Người xem</span>
@@ -469,6 +492,24 @@ export default function Navbar() {
             Lọc
           </div>
           <div
+            className={`mobile-dropdown-item ${currentpage === 'movies' ? 'active' : ''}`}
+            onClick={() => {
+              setcurrentpage('movies');
+              setShowmobilemenu(false);
+            }}
+          >
+            Phim lẻ
+          </div>
+          <div
+            className={`mobile-dropdown-item ${currentpage === 'tv' ? 'active' : ''}`}
+            onClick={() => {
+              setcurrentpage('tv');
+              setShowmobilemenu(false);
+            }}
+          >
+            Phim bộ
+          </div>
+          <div
             className={`mobile-dropdown-item ${currentpage === 'mylist' ? 'active' : ''}`}
             onClick={() => {
               setcurrentpage('mylist');
@@ -489,6 +530,26 @@ export default function Navbar() {
             <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
           </svg>
           <span>Trang chủ</span>
+        </div>
+        <div
+          className={`bottom-nav-item ${currentpage === 'movies' ? 'active' : ''}`}
+          onClick={() => setcurrentpage('movies')}
+        >
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <rect x="3" y="5" width="18" height="14" rx="2" />
+            <path d="M7 5v14M17 5v14M3 9h4M17 9h4M3 15h4M17 15h4" />
+          </svg>
+          <span>Phim lẻ</span>
+        </div>
+        <div
+          className={`bottom-nav-item ${currentpage === 'tv' ? 'active' : ''}`}
+          onClick={() => setcurrentpage('tv')}
+        >
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <rect x="2" y="6" width="20" height="13" rx="2" />
+            <path d="m8 10 3 2.5L8 15v-5zM14 10h3M14 13h3M8 22h8" />
+          </svg>
+          <span>Phim bộ</span>
         </div>
         <div
           className={`bottom-nav-item ${currentpage === 'filter' ? 'active' : ''}`}

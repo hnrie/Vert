@@ -1,8 +1,9 @@
 'use client';
 
-import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
-import { MediaItem, VideoSource, AudioSettings, WatchHistoryItem, SyncState, PlayerConfig } from '../lib/types';
+import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
+import { MediaItem, VideoSource, AudioSettings, WatchHistoryItem, PlayerConfig } from '../lib/types';
 import { updateambienthum, setupaudiopanning } from '../lib/audio';
+import { isrecord, optionalnumber } from '../lib/utils';
 
 interface AppContextType {
   currentpage: string;
@@ -11,7 +12,7 @@ interface AppContextType {
   setplayersource: (src: VideoSource) => void;
   mylist: MediaItem[];
   togglemylist: (item: MediaItem) => void;
-  isinmylist: (id: string) => boolean;
+  isinmylist: (item: Pick<MediaItem, 'id' | 'type'>) => boolean;
   clearmylist: () => void;
   history: WatchHistoryItem[];
   savehistory: (item: WatchHistoryItem) => void;
@@ -34,10 +35,7 @@ interface AppContextType {
   setfiltergenre: (g: { id: number; name: string } | null) => void;
   syncmodalopen: boolean;
   setsyncmodalopen: (open: boolean) => void;
-  openmodal: (name: string, data?: any) => void;
-  closemodal: () => void;
-  restoresyncdata: (data: SyncState) => void;
-  toastmsg: string | null;
+  restoresyncdata: (data: unknown) => void;
   showtoast: (msg: string) => void;
 }
 
@@ -51,14 +49,14 @@ const defaultaudio: AudioSettings = {
   depth: 0.45
 };
 
-function clamp01(v: any, fallback: number) {
+function clamp01(v: unknown, fallback: number) {
   const n = Number(v);
   if (!Number.isFinite(n)) return fallback;
   return Math.max(0, Math.min(1, n));
 }
 
-function sanitizeaudio(raw: any): AudioSettings {
-  if (!raw || typeof raw !== 'object') return { ...defaultaudio };
+function sanitizeaudio(raw: unknown): AudioSettings {
+  if (!isrecord(raw)) return { ...defaultaudio };
   return {
     enabled: Boolean(raw.enabled),
     spatial: Boolean(raw.spatial),
@@ -66,6 +64,69 @@ function sanitizeaudio(raw: any): AudioSettings {
     width: clamp01(raw.width, defaultaudio.width),
     depth: clamp01(raw.depth, defaultaudio.depth)
   };
+}
+
+function optionaltext(value: unknown): string | null {
+  return typeof value === 'string' && value ? value : null;
+}
+
+function sanitizemediaitem(value: unknown): MediaItem | null {
+  if (!isrecord(value)) return null;
+  if (typeof value.id !== 'string' || !value.id) return null;
+  if (value.type !== 'movie' && value.type !== 'tv') return null;
+  const genreids = Array.isArray(value.genreids)
+    ? value.genreids.map(id => Number(id)).filter(Number.isFinite)
+    : [];
+  return {
+    id: value.id,
+    title: typeof value.title === 'string' ? value.title : '',
+    type: value.type,
+    poster: optionaltext(value.poster),
+    backdrop: optionaltext(value.backdrop),
+    desc: typeof value.desc === 'string' ? value.desc : '',
+    rating: optionaltext(value.rating),
+    year: optionaltext(value.year),
+    genreids
+  };
+}
+
+function sanitizehistoryitem(value: unknown): WatchHistoryItem | null {
+  if (!isrecord(value)) return null;
+  if (typeof value.id !== 'string' || !value.id) return null;
+  if (value.mediatype !== 'movie' && value.mediatype !== 'tv') return null;
+  return {
+    id: value.id,
+    mediatype: value.mediatype,
+    title: typeof value.title === 'string' ? value.title : '',
+    poster: optionaltext(value.poster),
+    backdrop: optionaltext(value.backdrop),
+    year: optionaltext(value.year),
+    rating: optionaltext(value.rating),
+    currenttime: Number(value.currenttime) || 0,
+    duration: Number(value.duration) || 0,
+    progress: Number(value.progress) || 0,
+    season: optionalnumber(value.season),
+    episode: optionalnumber(value.episode),
+    updatedat: Number(value.updatedat) || 0
+  };
+}
+
+function sanitizemylist(value: unknown): MediaItem[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map(sanitizemediaitem)
+    .filter((item): item is MediaItem => item !== null);
+}
+
+function sanitizehistory(value: unknown): WatchHistoryItem[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map(sanitizehistoryitem)
+    .filter((item): item is WatchHistoryItem => item !== null);
+}
+
+function isvideosource(value: unknown): value is VideoSource {
+  return value === 'videasy' || value === 'vidking' || value === 'vyla';
 }
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
@@ -89,29 +150,26 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [hydrated, sethydrated] = useState<boolean>(false);
 
   useEffect(() => {
-    const readjson = (key: string) => {
+    const readjson = (key: string): unknown => {
       try {
         const raw = localStorage.getItem(key);
         return raw ? JSON.parse(raw) : null;
-      } catch (_) {
-        try { localStorage.removeItem(key); } catch (__) {}
+      } catch {
+        try { localStorage.removeItem(key); } catch {}
         return null;
       }
     };
 
     try {
       const p = localStorage.getItem('vk_player');
-      if (p === 'videasy' || p === 'vidking' || p === 'vyla') setplayersource(p);
+      if (isvideosource(p)) setplayersource(p);
 
-      const l = readjson('vk_mylist');
-      if (Array.isArray(l)) setmylist(l.filter(i => i && typeof i.id === 'string'));
-
-      const h = readjson('vk_hist');
-      if (Array.isArray(h)) sethistory(h.filter(i => i && typeof i.id === 'string'));
+      setmylist(sanitizemylist(readjson('vk_mylist')));
+      sethistory(sanitizehistory(readjson('vk_hist')));
 
       const a = readjson('vk_audio');
-      if (a && typeof a === 'object') setaudiosettings(prev => sanitizeaudio({ ...prev, ...a }));
-    } catch (_) {
+      if (isrecord(a)) setaudiosettings(prev => sanitizeaudio({ ...prev, ...a }));
+    } catch {
     } finally {
       sethydrated(true);
     }
@@ -127,28 +185,28 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (!hydrated) return;
     try {
       localStorage.setItem('vk_player', playersource);
-    } catch (_) {}
+    } catch {}
   }, [hydrated, playersource]);
 
   useEffect(() => {
     if (!hydrated) return;
     try {
       localStorage.setItem('vk_mylist', JSON.stringify(mylist));
-    } catch (_) {}
+    } catch {}
   }, [hydrated, mylist]);
 
   useEffect(() => {
     if (!hydrated) return;
     try {
       localStorage.setItem('vk_hist', JSON.stringify(history));
-    } catch (_) {}
+    } catch {}
   }, [hydrated, history]);
 
   useEffect(() => {
     if (!hydrated) return;
     try {
       localStorage.setItem('vk_audio', JSON.stringify(audiosettings));
-    } catch (_) {}
+    } catch {}
     updateambienthum(audiosettings);
   }, [hydrated, audiosettings]);
 
@@ -167,102 +225,91 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     };
   }, [detailitem, activeplayer, syncmodalopen, audiopanelopen]);
 
-  const showtoast = (msg: string) => {
+  const showtoast = useCallback((msg: string) => {
     if (toasttimer.current) clearTimeout(toasttimer.current);
     setToastmsg(msg);
     toasttimer.current = setTimeout(() => {
       setToastmsg(null);
       toasttimer.current = null;
     }, 3000);
-  };
+  }, []);
 
-  const togglemylist = (item: MediaItem) => {
+  const togglemylist = useCallback((item: MediaItem) => {
     setmylist(prev => {
-      const exists = prev.some(i => i.id === item.id);
+      const exists = prev.some(i => i.id === item.id && i.type === item.type);
       if (exists) {
         showtoast('Đã xóa khỏi danh sách của tôi');
-        return prev.filter(i => i.id !== item.id);
+        return prev.filter(i => !(i.id === item.id && i.type === item.type));
       }
       showtoast('Đã thêm vào danh sách của tôi');
       return [item, ...prev].slice(0, 100);
     });
-  };
+  }, [showtoast]);
 
-  const isinmylist = (id: string) => mylist.some(i => i.id === id);
+  const isinmylist = useCallback(
+    (item: Pick<MediaItem, 'id' | 'type'>) => mylist.some(i => i.id === item.id && i.type === item.type),
+    [mylist]
+  );
 
-  const clearmylist = () => {
+  const clearmylist = useCallback(() => {
     setmylist([]);
-    try { localStorage.removeItem('vk_mylist'); } catch (_) {}
+    try { localStorage.removeItem('vk_mylist'); } catch {}
     showtoast('Đã xóa danh sách của tôi');
-  };
+  }, [showtoast]);
 
-  const savehistory = (item: WatchHistoryItem) => {
+  const savehistory = useCallback((item: WatchHistoryItem) => {
     sethistory(prev => {
       const filtered = prev.filter(i => !(i.id === item.id && i.mediatype === item.mediatype));
       return [item, ...filtered].slice(0, 30);
     });
-  };
+  }, []);
 
-  const clearhistory = () => {
+  const clearhistory = useCallback(() => {
     sethistory([]);
-    try { localStorage.removeItem('vk_hist'); } catch (_) {}
+    try { localStorage.removeItem('vk_hist'); } catch {}
     showtoast('Đã xóa lịch sử xem');
-  };
+  }, [showtoast]);
 
-  const clearprogress = () => {
+  const clearprogress = useCallback(() => {
     try {
       Object.keys(localStorage).forEach(k => {
         if (k.startsWith('vk_p_')) localStorage.removeItem(k);
       });
-    } catch (_) {}
+    } catch {}
     showtoast('Đã xóa tiến độ xem');
-  };
+  }, [showtoast]);
 
-  const clearcache = () => {
+  const clearcache = useCallback(() => {
     try {
       sessionStorage.clear();
-    } catch (_) {}
+    } catch {}
     showtoast('Đã xóa bộ nhớ đệm');
-  };
+  }, [showtoast]);
 
-  const opendetail = (item: MediaItem) => {
+  const opendetail = useCallback((item: MediaItem) => {
     setdetailitem(item);
-  };
+  }, []);
 
-  const closedetail = () => {
+  const closedetail = useCallback(() => {
     setdetailitem(null);
-  };
+  }, []);
 
-  const playcontent = (item: MediaItem, season?: number | null, episode?: number | null) => {
+  const playcontent = useCallback((item: MediaItem, season?: number | null, episode?: number | null) => {
     setactiveplayer({ item, season, episode });
-  };
+  }, []);
 
-  const closeplayer = () => {
+  const closeplayer = useCallback(() => {
     setactiveplayer(null);
-  };
+  }, []);
 
-  const openmodal = (name: string, data?: any) => {
-    if (name === 'sync') setsyncmodalopen(true);
-    if (name === 'detail' && data) setdetailitem(data);
-    if (name === 'audio') setaudiopanelopen(true);
-  };
-
-  const closemodal = () => {
-    setsyncmodalopen(false);
-    setdetailitem(null);
-    setaudiopanelopen(false);
-  };
-
-  const restoresyncdata = (data: SyncState) => {
-    if (!data || typeof data !== 'object') return;
-    if (Array.isArray(data.mylist)) setmylist(data.mylist.filter(i => i && typeof i.id === 'string'));
-    if (Array.isArray(data.history)) sethistory(data.history.filter(i => i && typeof i.id === 'string'));
+  const restoresyncdata = useCallback((data: unknown) => {
+    if (!isrecord(data)) return;
+    if (Array.isArray(data.mylist)) setmylist(sanitizemylist(data.mylist));
+    if (Array.isArray(data.history)) sethistory(sanitizehistory(data.history));
     if (data.audiosettings) setaudiosettings(sanitizeaudio(data.audiosettings));
-    if (data.playersource === 'videasy' || data.playersource === 'vidking' || data.playersource === 'vyla') {
-      setplayersource(data.playersource);
-    }
+    if (isvideosource(data.playersource)) setplayersource(data.playersource);
     showtoast('Đồng bộ dữ liệu thành công!');
-  };
+  }, [showtoast]);
 
   return (
     <AppContext.Provider
@@ -296,10 +343,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         setfiltergenre,
         syncmodalopen,
         setsyncmodalopen,
-        openmodal,
-        closemodal,
         restoresyncdata,
-        toastmsg,
         showtoast
       }}
     >
@@ -309,8 +353,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   );
 }
 
-export function useapp() {
+export function useApp() {
   const ctx = useContext(AppContext);
-  if (!ctx) throw new Error('useapp must be used within AppProvider');
+  if (!ctx) throw new Error('useApp must be used within AppProvider');
   return ctx;
 }

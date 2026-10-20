@@ -1,7 +1,8 @@
 'use client';
 
 import React from 'react';
-import { useapp } from '../context/appcontext';
+import Image from 'next/image';
+import { useApp } from '../context/appcontext';
 import { MediaItem } from '../lib/types';
 
 interface MediaCardProps {
@@ -13,8 +14,8 @@ interface MediaCardProps {
 }
 
 export default function MediaCard({ item, badge, progress, season, episode }: MediaCardProps) {
-  const { opendetail, playcontent, togglemylist, isinmylist } = useapp();
-  const inlist = isinmylist(item.id);
+  const { opendetail, playcontent, togglemylist, isinmylist } = useApp();
+  const inlist = isinmylist(item);
 
   const rated = item.rating ? parseFloat(item.rating) : NaN;
   const matchscore = Number.isFinite(rated) ? `${Math.round(rated * 10)}%` : '';
@@ -37,7 +38,12 @@ export default function MediaCard({ item, badge, progress, season, episode }: Me
       {badge && <div className="top-badge">{badge}</div>}
 
       {item.poster ? (
-        <img src={item.poster} alt={item.title} loading="lazy" />
+        <Image
+          src={item.poster}
+          alt={item.title}
+          fill
+          sizes="(max-width: 600px) 45vw, (max-width: 1200px) 25vw, 16vw"
+        />
       ) : (
         <span>{item.title}</span>
       )}

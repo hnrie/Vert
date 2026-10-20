@@ -1,15 +1,16 @@
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
-import { useapp } from '../context/appcontext';
-import { fetchtmdb, norm, GENRE_LIST } from '../lib/tmdb';
+import { useApp } from '../context/appcontext';
+import { fetchtmdb, normlist, GENRE_LIST, TmdbListResponse } from '../lib/tmdb';
 import MediaCard from './mediacard';
 import { MediaItem } from '../lib/types';
+import { isaborterror } from '../lib/utils';
 
 const maxpages = 20;
 
 export default function SearchView() {
-  const { searchquery, filtergenre, setfiltergenre, setsearchquery } = useapp();
+  const { searchquery, filtergenre, setfiltergenre, setsearchquery } = useApp();
 
   const querykey = filtergenre ? `g:${filtergenre.id}` : searchquery ? `q:${searchquery}` : '';
 
@@ -22,11 +23,13 @@ export default function SearchView() {
   const loadingref = useRef<boolean>(false);
   const seenref = useRef<Set<string>>(new Set());
 
-  if (cursor.key !== querykey) {
+  useEffect(() => {
+    if (cursor.key === querykey) return;
+    seenref.current = new Set();
     setCursor({ key: querykey, page: 1 });
     setItems([]);
     setHasmore(true);
-  }
+  }, [cursor.key, querykey]);
 
   const activekey = cursor.key;
   const activepage = cursor.page;
@@ -48,15 +51,13 @@ export default function SearchView() {
         if (activekey.startsWith('g:')) {
           const gid = activekey.slice(2);
           const [resmovie, restv] = await Promise.all([
-            fetchtmdb('/discover/movie', { with_genres: gid, page: activepage }, ctrl.signal),
-            fetchtmdb('/discover/tv', { with_genres: gid, page: activepage }, ctrl.signal)
+            fetchtmdb<TmdbListResponse>('/discover/movie', { with_genres: gid, page: activepage }, ctrl.signal),
+            fetchtmdb<TmdbListResponse>('/discover/tv', { with_genres: gid, page: activepage }, ctrl.signal)
           ]);
-          const mlist = (resmovie.results || []).map((i: any) => norm(i, 'movie')).filter(Boolean);
-          const tlist = (restv.results || []).map((i: any) => norm(i, 'tv')).filter(Boolean);
-          fresh = [...mlist, ...tlist] as MediaItem[];
+          fresh = [...normlist(resmovie.results, 'movie'), ...normlist(restv.results, 'tv')];
         } else {
-          const res = await fetchtmdb('/search/multi', { query: activekey.slice(2), page: activepage }, ctrl.signal);
-          fresh = (res.results || []).map((i: any) => norm(i)).filter(Boolean) as MediaItem[];
+          const res = await fetchtmdb<TmdbListResponse>('/search/multi', { query: activekey.slice(2), page: activepage }, ctrl.signal);
+          fresh = normlist(res.results);
         }
 
         if (!active) return;
@@ -70,8 +71,8 @@ export default function SearchView() {
 
         if (fresh.length === 0 || activepage >= maxpages) setHasmore(false);
         if (unique.length > 0) setItems(prev => (activepage === 1 ? unique : [...prev, ...unique]));
-      } catch (e: any) {
-        if (active && e?.name !== 'AbortError') setHasmore(false);
+      } catch (error) {
+        if (active && !isaborterror(error)) setHasmore(false);
       } finally {
         if (active) {
           loadingref.current = false;

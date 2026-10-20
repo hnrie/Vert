@@ -1,47 +1,57 @@
 'use client';
 
 import React, { useEffect, useRef } from 'react';
-import { useapp } from '../../context/appcontext';
+import { useApp } from '../../context/appcontext';
 import VylaPlayer from './vylaplayer';
 import { playuisound } from '../../lib/audio';
+import { isrecord, optionalnumber, togglefullscreen } from '../../lib/utils';
 
 export default function PlayerOverlay() {
-  const { activeplayer, closeplayer, playersource, savehistory, audiopanelopen, setaudiopanelopen, audiosettings } = useapp();
+  const { activeplayer, closeplayer, playersource, savehistory, audiopanelopen, setaudiopanelopen, audiosettings } = useApp();
   const overlayRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!activeplayer) return;
 
     const handleMsg = (e: MessageEvent) => {
-      let payload = e.data;
+      if (
+        e.origin !== window.location.origin &&
+        e.origin !== 'https://www.vidking.net' &&
+        e.origin !== 'https://vidking.net' &&
+        e.origin !== 'https://player.videasy.net'
+      ) return;
+
+      let payload: unknown = e.data;
       if (typeof payload === 'string') {
         try {
           payload = JSON.parse(payload);
-        } catch (_) {
+        } catch {
           return;
         }
       }
-      if (!payload || payload.type !== 'PLAYER_EVENT' || !payload.data) return;
+      if (!isrecord(payload) || payload.type !== 'PLAYER_EVENT') return;
 
       const d = payload.data;
+      if (!isrecord(d)) return;
+
       const item = activeplayer.item;
-      const id = String(d.id ?? item.id);
+      const id = d.id === undefined || d.id === null ? item.id : String(d.id);
       if (!id) return;
 
-      const season = Number(d.season) || null;
-      const episode = Number(d.episode) || null;
+      const season = optionalnumber(d.season);
+      const episode = optionalnumber(d.episode);
       const mediatype = d.mediaType === 'tv' || d.mediaType === 'movie' ? d.mediaType : item.type;
       const duration = Number(d.duration) || 0;
       const currenttime = Number(d.currentTime) || 0;
       const progress = Number(d.progress) || (duration > 0 ? (currenttime / duration) * 100 : 0);
 
-      const pkey = season && episode
+      const pkey = season !== null && episode !== null
         ? `vk_p_tv_${id}_s${season}_e${episode}`
         : `vk_p_${mediatype}_${id}`;
 
       try {
         localStorage.setItem(pkey, JSON.stringify({ id, mediatype, currenttime, duration, progress, season, episode }));
-      } catch (_) {}
+      } catch {}
 
       if (progress > 0) {
         savehistory({
@@ -95,15 +105,7 @@ export default function PlayerOverlay() {
       : `https://player.videasy.net/movie/${item.id}`);
 
   const togglefs = () => {
-    const el = overlayRef.current;
-    if (!el) return;
-    if (document.fullscreenElement || (document as any).webkitFullscreenElement) {
-      if (document.exitFullscreen) document.exitFullscreen();
-      else if ((document as any).webkitExitFullscreen) (document as any).webkitExitFullscreen();
-    } else {
-      if (el.requestFullscreen) el.requestFullscreen();
-      else if ((el as any).webkitRequestFullscreen) (el as any).webkitRequestFullscreen();
-    }
+    togglefullscreen(overlayRef.current);
   };
 
   return (

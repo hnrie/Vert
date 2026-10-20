@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { isrecord } from '../../../lib/utils';
 
 const memstore = new Map<string, { data: string; expires: number }>();
 const ttlms = 600000;
@@ -8,7 +9,7 @@ function useupstash() {
     return Boolean(process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN);
 }
 
-async function callredis(cmd: any[]) {
+async function callredis(cmd: (string | number)[]): Promise<Record<string, unknown> | null> {
     const url = process.env.UPSTASH_REDIS_REST_URL;
     const token = process.env.UPSTASH_REDIS_REST_TOKEN;
     if (!url || !token) return null;
@@ -18,7 +19,8 @@ async function callredis(cmd: any[]) {
         body: JSON.stringify(cmd)
     });
     if (!res.ok) throw new Error('Redis ' + res.status);
-    return res.json();
+    const data: unknown = await res.json();
+    return isrecord(data) ? data : null;
 }
 
 function sweep() {
@@ -42,9 +44,9 @@ function newpin() {
 export async function POST(req: NextRequest) {
     let data: unknown;
     try {
-        const body = await req.json();
-        data = body?.data;
-    } catch (_) {
+        const body: unknown = await req.json();
+        data = isrecord(body) ? body.data : null;
+    } catch {
         return NextResponse.json({ error: 'Thiếu dữ liệu' }, { status: 400 });
     }
 
@@ -65,8 +67,8 @@ export async function POST(req: NextRequest) {
         for (let i = 0; i < 10 && !free; i++) {
             pin = newpin();
             if (remote) {
-                const exists = await callredis(['EXISTS', 'sync:' + pin]);
-                free = Boolean(exists && exists.result === 0);
+                const stored = await callredis(['SET', 'sync:' + pin, data, 'EX', Math.floor(ttlms / 1000), 'NX']);
+                free = Boolean(stored && stored.result === 'OK');
             } else {
                 const item = memstore.get(pin);
                 free = !item || item.expires < Date.now();
@@ -77,14 +79,12 @@ export async function POST(req: NextRequest) {
             return NextResponse.json({ error: 'Không thể tạo mã PIN, vui lòng thử lại' }, { status: 503 });
         }
 
-        if (remote) {
-            await callredis(['SET', 'sync:' + pin, data, 'EX', Math.floor(ttlms / 1000)]);
-        } else {
+        if (!remote) {
             memstore.set(pin, { data, expires: Date.now() + ttlms });
         }
 
         return NextResponse.json({ pin }, { status: 200 });
-    } catch (err) {
+    } catch {
         return NextResponse.json({ error: 'Máy chủ đồng bộ không phản hồi' }, { status: 502 });
     }
 }
@@ -99,11 +99,10 @@ export async function GET(req: NextRequest) {
 
     if (useupstash()) {
         try {
-            const result = await callredis(['GET', 'sync:' + code]);
-            if (!result || !result.result) return notfound;
-            await callredis(['DEL', 'sync:' + code]);
+            const result = await callredis(['GETDEL', 'sync:' + code]);
+            if (!result || typeof result.result !== 'string' || !result.result) return notfound;
             return NextResponse.json({ data: result.result }, { status: 200 });
-        } catch (err) {
+        } catch {
             return NextResponse.json({ error: 'Máy chủ đồng bộ không phản hồi' }, { status: 502 });
         }
     }

@@ -1,12 +1,12 @@
 'use client';
 
 import React, { useEffect } from 'react';
-import { useapp } from '../../context/appcontext';
+import { useApp } from '../../context/appcontext';
 import { playuisound } from '../../lib/audio';
 import { AudioSettings } from '../../lib/types';
 
 export default function AudioPanel() {
-  const { audiosettings, setaudiosettings, audiopanelopen, setaudiopanelopen } = useapp();
+  const { audiosettings, setaudiosettings, audiopanelopen, setaudiopanelopen } = useApp();
 
   useEffect(() => {
     if (!audiopanelopen) return;

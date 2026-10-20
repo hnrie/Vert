@@ -7,124 +7,48 @@ on:
 
 jobs:
   build-windows:
+    if: ${{ vars.VERT_APP_URL != '' }}
     runs-on: windows-latest
+    env:
+      VERT_APP_URL: ${{ vars.VERT_APP_URL }}
     steps:
       - uses: actions/checkout@v4
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
-          node-version: '20'
-      - name: Install dependencies
-        run: npm install
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-      - name: Prepare Web Assets
-        shell: bash
-        run: |
-          mkdir -p www
-          cp -r index.html style.css script.js manifest.json api www/ 2>/dev/null || true
-      - name: Build Tauri App
-        run: npm run tauri build
-      - name: Upload Windows EXE
-        uses: actions/upload-artifact@v4
+          node-version: '22'
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+      - run: npm ci
+      - run: npm run tauri build
+      - uses: actions/upload-artifact@v4
         with:
           name: Vert-Windows-App
           path: src-tauri/target/release/bundle/nsis/*.exe
 
   build-android:
+    if: ${{ vars.VERT_APP_URL != '' }}
     runs-on: ubuntu-latest
+    env:
+      VERT_APP_URL: ${{ vars.VERT_APP_URL }}
     steps:
       - uses: actions/checkout@v4
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
-          node-version: '20'
-      - name: Setup Java
-        uses: actions/setup-java@v3
+          node-version: '22'
+          cache: npm
+      - uses: actions/setup-java@v4
         with:
-          distribution: 'zulu'
-          java-version: '17'
-      - name: Install dependencies
-        run: npm install
-      - name: Prepare Web Assets
-        run: |
-          mkdir www
-          cp -r index.html style.css script.js manifest.json api www/ 2>/dev/null || true
-      - name: Add Android Platform
-        run: npx cap add android
-      - name: Generate Android Icons
-        run: |
-          npm install -g @capacitor/assets
-          mkdir -p assets
-          cp src-tauri/icons/icon.png assets/icon.png
-          cp src-tauri/icons/icon.png assets/splash.png
-          npx capacitor-assets generate --android
-      - name: Native Android Popup Blocker
-        run: |
-          cat << 'EOF' > android/app/src/main/java/com/vert/app/MainActivity.java
-          package com.vert.app;
-          import android.content.Intent;
-          import android.net.Uri;
-          import android.os.Bundle;
-          import android.webkit.WebView;
-          import android.os.Message;
-          import android.webkit.CookieManager;
-          import com.getcapacitor.BridgeActivity;
-          import com.getcapacitor.BridgeWebChromeClient;
-          public class MainActivity extends BridgeActivity {
-              @Override
-              public void onCreate(Bundle savedInstanceState) {
-                  super.onCreate(savedInstanceState);
-              }
-              @Override
-              public void onStart() {
-                  super.onStart();
-                  WebView webView = this.bridge.getWebView();
-                  webView.getSettings().setSupportMultipleWindows(true);
-                  webView.getSettings().setJavaScriptCanOpenWindowsAutomatically(true);
-                  webView.getSettings().setDomStorageEnabled(true);
-                  
-                  CookieManager cookieManager = CookieManager.getInstance();
-                  cookieManager.setAcceptCookie(true);
-                  cookieManager.setAcceptThirdPartyCookies(webView, true);
-
-                  String ua = webView.getSettings().getUserAgentString();
-                  webView.getSettings().setUserAgentString(ua.replace("; wv", ""));
-
-                  webView.setWebChromeClient(new BridgeWebChromeClient(this.bridge) {
-                      @Override
-                      public boolean onCreateWindow(WebView view, boolean isDialog, boolean isUserGesture, Message resultMsg) {
-                          WebView dummyWebView = new WebView(view.getContext());
-                          WebView.WebViewTransport transport = (WebView.WebViewTransport) resultMsg.obj;
-                          transport.setWebView(dummyWebView);
-                          resultMsg.sendToTarget();
-                          return true;
-                      }
-                  });
-              }
-              @Override
-              public void startActivity(Intent intent) {
-                  if (Intent.ACTION_VIEW.equals(intent.getAction())) {
-                      Uri uri = intent.getData();
-                      if (uri != null && ("http".equals(uri.getScheme()) || "https".equals(uri.getScheme()))) {
-                          return;
-                      }
-                  }
-                  super.startActivity(intent);
-              }
-          }
-          EOF
-      - name: Build Android APK
-        run: |
-          npx cap sync android
-          cd android
-          ./gradlew assembleDebug
-      - name: Rename APK
-        run: |
-          VERSION=$(node -p "require('./package.json').version")
-          mv android/app/build/outputs/apk/debug/app-debug.apk android/app/build/outputs/apk/debug/vert-v$VERSION.apk
-      - name: Upload Android APK
-        uses: actions/upload-artifact@v4
+          distribution: zulu
+          java-version: '21'
+      - run: npm ci
+      - run: npx cap add android
+      - run: npm run native:android
+      - run: ./gradlew assembleDebug
+        working-directory: android
+      - run: |
+          version=$(node -p "require('./package.json').version")
+          mv android/app/build/outputs/apk/debug/app-debug.apk "android/app/build/outputs/apk/debug/vert-v${version}.apk"
+      - uses: actions/upload-artifact@v4
         with:
           name: Vert-Android-App
           path: android/app/build/outputs/apk/debug/vert-*.apk

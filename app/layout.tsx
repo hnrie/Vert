@@ -1,13 +1,14 @@
 import type { Metadata, Viewport } from 'next';
-import { Inter } from 'next/font/google';
 import './globals.css';
-
-const interfont = Inter({ subsets: ['latin'] });
 
 export const metadata: Metadata = {
   title: 'VERT - Phim không giới hạn',
   description: 'VERT: Phim không giới hạn',
   manifest: '/manifest.json',
+  icons: {
+    icon: '/icons/icon-32.png',
+    apple: '/icons/icon-192.png'
+  },
   appleWebApp: {
     capable: true,
     title: 'Vert',
@@ -26,7 +27,7 @@ export const viewport: Viewport = {
 export default function rootlayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="vi">
-      <body className={interfont.className}>
+      <body>
         <div id="loader-screen" className="loader-overlay" aria-hidden="true">
           <div className="loader-inner">
             <div className="loader-logo">

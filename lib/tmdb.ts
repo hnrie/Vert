@@ -1,4 +1,9 @@
 import { MediaItem } from './types';
+import { isrecord } from './utils';
+
+export interface TmdbListResponse {
+  results?: unknown;
+}
 
 export const GENRE_MAP: Record<number, string> = {
   28: 'Hành Động',
@@ -52,7 +57,11 @@ export const GENRE_LIST = [
   { id: 10765, name: 'Viễn Tưởng & Kỳ Ảo' }
 ];
 
-export async function fetchtmdb(ep: string, extra: Record<string, string | number> = {}, signal?: AbortSignal) {
+export async function fetchtmdb<T = unknown>(
+  ep: string,
+  extra: Record<string, string | number> = {},
+  signal?: AbortSignal
+): Promise<T> {
   const queryparams = new URLSearchParams();
   queryparams.set('ep', ep);
   Object.entries(extra).forEach(([k, v]) => {
@@ -63,26 +72,58 @@ export async function fetchtmdb(ep: string, extra: Record<string, string | numbe
   if (!res.ok) {
     throw new Error(`TMDB error ${res.status}`);
   }
-  return await res.json();
+  return await res.json() as T;
 }
 
-export function norm(item: any, fallback?: string): MediaItem | null {
-  if (!item) return null;
-  const mt = item.media_type || fallback || 'movie';
+function text(value: unknown): string {
+  return typeof value === 'string' ? value : '';
+}
+
+function imageurl(path: unknown, size: string): string | null {
+  const value = text(path);
+  return value ? `https://image.tmdb.org/t/p/${size}${value}` : null;
+}
+
+export function norm(item: unknown, fallback?: 'movie' | 'tv'): MediaItem | null {
+  if (!isrecord(item)) return null;
+  const rawid = item.id;
+  if (typeof rawid !== 'number' && typeof rawid !== 'string') return null;
+
+  const media = text(item.media_type);
+  const mt = media || fallback || 'movie';
   if (mt === 'person') return null;
+
+  const vote = typeof item.vote_average === 'number' ? item.vote_average : Number(item.vote_average);
+  const genres = Array.isArray(item.genre_ids)
+    ? item.genre_ids
+    : Array.isArray(item.genres)
+      ? item.genres
+      : [];
+  const genreids = genres
+    .map(genre => isrecord(genre) ? Number(genre.id) : Number(genre))
+    .filter(Number.isFinite);
+  const released = text(item.release_date) || text(item.first_air_date);
+
   return {
-    id: String(item.id),
-    title: item.title || item.name || '',
+    id: String(rawid),
+    title: text(item.title) || text(item.name),
     type: mt === 'tv' ? 'tv' : 'movie',
-    poster: item.poster_path ? `https://image.tmdb.org/t/p/w500${item.poster_path}` : null,
-    backdrop: item.backdrop_path ? `https://image.tmdb.org/t/p/w1280${item.backdrop_path}` : null,
-    desc: item.overview || '',
-    rating: item.vote_average ? item.vote_average.toFixed(1) : null,
-    year: (item.release_date || item.first_air_date || '').slice(0, 4) || null,
-    genreids: item.genre_ids || (item.genres ? item.genres.map((g: any) => g.id) : [])
+    poster: imageurl(item.poster_path, 'w500'),
+    backdrop: imageurl(item.backdrop_path, 'w1280'),
+    desc: text(item.overview),
+    rating: Number.isFinite(vote) && vote > 0 ? vote.toFixed(1) : null,
+    year: released.slice(0, 4) || null,
+    genreids
   };
 }
 
+export function normlist(items: unknown, fallback?: 'movie' | 'tv'): MediaItem[] {
+  if (!Array.isArray(items)) return [];
+  return items
+    .map(item => norm(item, fallback))
+    .filter((item): item is MediaItem => item !== null);
+}
+
 export function genrenames(ids: number[]): string[] {
-  return (ids || []).map(i => GENRE_MAP[i]).filter(Boolean);
+  return ids.map(id => GENRE_MAP[id]).filter((name): name is string => Boolean(name));
 }
